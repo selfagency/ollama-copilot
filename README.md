@@ -18,16 +18,14 @@
 
 ## ✨ Features
 
-- 🧠 **All Ollama Models** - Download and run any model from the [Ollama Library](https://ollama.ai/library)
+- 🧠 **All Ollama Models** - Download and run any model from the [Ollama Library](https://ollama.ai/library), including Cloud models (Requires API key)
 - 🛠️ **Model Management** - Pull, manage, and delete models directly from the sidebar
 - 🏠 **Local Execution** - Models run on your machine with full privacy—no data leaves your computer
-- 🔀 **Model Selection** - Choose between cloud and local models
-- 💬 **Chat Participant** - Invoke `@ollama` directly in Copilot Chat for a dedicated, history-aware conversation with your local model
 - 🔧 **Tool Calling** - Function calling support for agentic workflows with compatible models
 - 🖼️ **Vision Support** - Image input for models with vision capabilities
-- 📝 **Modelfile Management** - Create, edit, and build custom Ollama modelfiles with syntax highlighting, hover docs, and autocomplete
-- ⚡ **Streami
 - ⚡ **Streaming** - Real-time response streaming for faster interactions
+- 📝 **Modelfile Management** - Create, edit, and build custom Ollama modelfiles with syntax highlighting, hover docs, and autocomplete
+- 💬 **Chat Participant** - Invoke `@ollama` directly in Copilot Chat for a dedicated, history-aware conversation with your local model
 
 ## 🔧 Requirements
 
