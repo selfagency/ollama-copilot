@@ -729,11 +729,11 @@ describe('Extracted command handlers', () => {
   it('handlePullModel handles model name input', async () => {
     const { handlePullModel } = await import('./sidebar.js');
 
-    const mockClient = {
+    const _mockClient = {
       pull: vi.fn().mockResolvedValue(undefined),
     } as any;
 
-    const mockProvider = {
+    const _mockProvider = {
       refresh: vi.fn(),
     } as any;
 
@@ -745,7 +745,7 @@ describe('Extracted command handlers', () => {
   it('handlePullModelFromLibrary handles library models', async () => {
     const { handlePullModelFromLibrary, ModelTreeItem } = await import('./sidebar.js');
 
-    const mockClient = {
+    const _mockClient = {
       pull: vi.fn().mockResolvedValue(undefined),
     } as any;
 
@@ -756,7 +756,7 @@ describe('Extracted command handlers', () => {
     const item = new ModelTreeItem('mistral:7b', 'library-model');
 
     // Should not throw
-    handlePullModelFromLibrary(item, mockClient, mockProvider);
+    handlePullModelFromLibrary(item, _mockClient, mockProvider);
 
     // Since it's async with promise handling, pull should be called eventually
     // Verify the function exists and is callable

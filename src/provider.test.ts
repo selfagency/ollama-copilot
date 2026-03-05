@@ -162,7 +162,7 @@ describe('OllamaChatModelProvider model detection', () => {
       { info: vi.fn(), warn: vi.fn(), error: vi.fn(), exception: vi.fn() } as any,
     );
 
-    const models = await provider.provideLanguageModelChatInformation({ silent: true }, {} as any);
+    const _models = await provider.provideLanguageModelChatInformation({ silent: true }, {} as any);
     // We can't directly test private methods, but we can verify that models are fetched
     expect(show).toBeDefined();
   });
