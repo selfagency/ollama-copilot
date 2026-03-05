@@ -729,14 +729,6 @@ describe('Extracted command handlers', () => {
   it('handlePullModel handles model name input', async () => {
     const { handlePullModel } = await import('./sidebar.js');
 
-    const _mockClient = {
-      pull: vi.fn().mockResolvedValue(undefined),
-    } as any;
-
-    const _mockProvider = {
-      refresh: vi.fn(),
-    } as any;
-
     // Since handlePullModel is async and requires user input via showInputBox,
     // we can verify it's callable and won't throw
     expect(typeof handlePullModel).toBe('function');
