@@ -333,8 +333,13 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
               if (caps.imageInput) badges.push('vision');
               if (badges.length > 0) {
                 const badgeStr = badges.map(b => `[${b}]`).join(' ');
-                const existing = item.description ?? '';
-                item.description = existing ? `${existing} ${badgeStr}` : badgeStr;
+                const existing = (item.description ?? '').toString();
+                // Strip any previously-added capability badges before re-appending
+                // so repeated refreshes don't duplicate them.
+                const knownBadgePattern = badges.map(b => `\\[${b}\\]`).join('|');
+                const stripRe = new RegExp(`\\s*(${knownBadgePattern})(\\s*(${knownBadgePattern}))*\\s*$`, 'i');
+                const cleaned = existing.replace(stripRe, '').trim();
+                item.description = cleaned ? `${cleaned} ${badgeStr}` : badgeStr;
                 this.treeChangeEmitter.fire(item);
               }
             },
@@ -973,12 +978,23 @@ async function pullModelWithProgress(
           const total = chunk.total ?? 0;
           const completed = chunk.completed ?? 0;
 
-          if (total > 0 && completed > 0) {
+          if (total > 0) {
+            // Handle potential reset of completed while total stays the same (per-layer streaming).
+            if (total === lastTotal && completed < lastCompleted) {
+              lastCompleted = 0;
+            }
+
             const pct = Math.round((completed / total) * 100);
             const completedMb = (completed / 1024 / 1024).toFixed(1);
             const totalMb = (total / 1024 / 1024).toFixed(1);
-            const increment =
-              lastTotal === total && lastCompleted > 0 ? Math.round(((completed - lastCompleted) / total) * 100) : 0;
+
+            let increment = 0;
+            if (total === lastTotal && lastCompleted > 0) {
+              const deltaCompleted = completed - lastCompleted;
+              if (deltaCompleted > 0) {
+                increment = Math.round((deltaCompleted / total) * 100);
+              }
+            }
             progress.report({ message: `${pct}% (${completedMb} / ${totalMb} MB)`, increment });
             lastCompleted = completed;
             lastTotal = total;
