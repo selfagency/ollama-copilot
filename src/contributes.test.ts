@@ -8,7 +8,7 @@ type PackageJson = {
       activitybar?: Array<{ id: string; icon?: string }>;
     };
     views?: Record<string, Array<{ id: string; type?: string }>>;
-    commands?: Array<{ command: string }>;
+    commands?: Array<{ command: string; title?: string; category?: string }>;
     menus?: {
       'view/title'?: Array<{ command: string; when?: string }>;
       'view/item/context'?: Array<{ command: string; when?: string }>;
@@ -78,5 +78,14 @@ describe('package contributes integrity', () => {
     expect(icon).toBeTruthy();
     const iconPath = resolve(__dirname, '..', icon!);
     expect(existsSync(iconPath)).toBe(true);
+  });
+
+  it('every command has category "Ollama"', () => {
+    const pkg = loadPackageJson();
+    const commands = pkg.contributes?.commands ?? [];
+
+    const missing = commands.filter(cmd => cmd.category !== 'Ollama').map(cmd => cmd.command);
+
+    expect(missing).toEqual([]);
   });
 });

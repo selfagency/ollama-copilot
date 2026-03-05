@@ -116,90 +116,108 @@
     "commands": [
       {
         "command": "ollama-copilot.manageAuthToken",
-        "title": "Manage Ollama Auth Token"
+        "title": "Manage Ollama Auth Token",
+        "category": "Ollama"
       },
       {
         "command": "ollama-copilot.refreshSidebar",
         "title": "Refresh Local Ollama Models",
+        "category": "Ollama",
         "icon": "$(refresh)"
       },
       {
         "command": "ollama-copilot.refreshLocalModels",
         "title": "Refresh Local Ollama Models",
+        "category": "Ollama",
         "icon": "$(refresh)"
       },
       {
         "command": "ollama-copilot.refreshLibrary",
         "title": "Refresh Ollama Library",
+        "category": "Ollama",
         "icon": "$(refresh)"
       },
       {
         "command": "ollama-copilot.sortLibraryByName",
         "title": "Sort Ollama Library by name",
+        "category": "Ollama",
         "icon": "$(sort-precedence)"
       },
       {
         "command": "ollama-copilot.sortLibraryByRecency",
         "title": "Sort Ollama Library by recency",
+        "category": "Ollama",
         "icon": "$(sort-precedence)"
       },
       {
         "command": "ollama-copilot.deleteModel",
         "title": "Delete Ollama Model",
+        "category": "Ollama",
         "icon": "$(trash)"
       },
       {
         "command": "ollama-copilot.pullModel",
         "title": "Pull Ollama Model",
+        "category": "Ollama",
         "icon": "$(cloud-download)"
       },
       {
         "command": "ollama-copilot.stopModel",
         "title": "Stop Ollama Model",
+        "category": "Ollama",
         "icon": "$(stop-circle)"
       },
       {
         "command": "ollama-copilot.startModel",
         "title": "Start Ollama Model",
+        "category": "Ollama",
         "icon": "$(play-circle)"
       },
       {
         "command": "ollama-copilot.pullModelFromLibrary",
-        "title": "Pull Ollama Model",
+        "title": "Pull Ollama Model from Library",
+        "category": "Ollama",
         "icon": "$(cloud-download)"
       },
       {
         "command": "ollama-copilot.openLibraryModelPage",
         "title": "Open Ollama Model Page",
+        "category": "Ollama",
         "icon": "$(link-external)"
       },
       {
         "command": "ollama-copilot.previewLibraryModel",
-        "title": "Ollama Model Details",
+        "title": "Show Ollama Model Details",
+        "category": "Ollama",
         "icon": "$(preview)"
       },
       {
         "command": "ollama-copilot.showModelDetails",
-        "title": "Ollama Model Details",
+        "title": "Show Ollama Model Details",
+        "category": "Ollama",
         "icon": "$(info)"
       },
       {
         "command": "ollama-copilot.refreshCloudModels",
         "title": "Refresh Ollama Cloud Models",
+        "category": "Ollama",
         "icon": "$(refresh)"
       },
       {
         "command": "ollama-copilot.manageCloudApiKey",
-        "title": "Manage Ollama Cloud API Key"
+        "title": "Manage Ollama Cloud API Key",
+        "category": "Ollama"
       },
       {
         "command": "ollama-copilot.startCloudModel",
         "title": "Run Ollama Cloud Model",
+        "category": "Ollama",
         "icon": "$(play-circle)"
       },
       {
         "command": "ollama-copilot.stopCloudModel",
         "title": "Stop Ollama Cloud Model",
+        "category": "Ollama",
         "icon": "$(stop-circle)"
       }
     ],
