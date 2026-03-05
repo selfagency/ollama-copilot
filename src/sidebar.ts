@@ -1,6 +1,7 @@
 import { Ollama } from 'ollama';
 import {
   commands,
+  Disposable,
   Event,
   EventEmitter,
   ExtensionContext,
@@ -39,7 +40,7 @@ export class ModelTreeItem extends TreeItem {
 /**
  * Ollama sidebar/activity bar view provider
  */
-export class OllamaSidebarProvider implements TreeDataProvider<ModelTreeItem> {
+export class OllamaSidebarProvider implements TreeDataProvider<ModelTreeItem>, Disposable {
   private treeChangeEmitter = new EventEmitter<ModelTreeItem | null>();
   readonly onDidChangeTreeData: Event<ModelTreeItem | null> = this.treeChangeEmitter.event;
 
@@ -49,7 +50,14 @@ export class OllamaSidebarProvider implements TreeDataProvider<ModelTreeItem> {
     new ModelTreeItem('Processes', 'pane'),
   ];
 
-  constructor(private client: Ollama) {}
+  private refreshTimeout: NodeJS.Timeout | null = null;
+  private lastRefreshTime = 0;
+  private libraryLastRefreshTime = 0;
+  private refreshIntervals: NodeJS.Timeout[] = [];
+
+  constructor(private client: Ollama) {
+    this.startAutoRefresh();
+  }
 
   /**
    * Get tree items for a given element
@@ -116,10 +124,98 @@ export class OllamaSidebarProvider implements TreeDataProvider<ModelTreeItem> {
   }
 
   /**
-   * Refresh the tree
+   * Refresh the tree (manual refresh button - forces immediate refresh)
    */
   refresh(): void {
+    this.lastRefreshTime = 0; // Force refresh
     this.treeChangeEmitter.fire(null);
+  }
+
+  /**
+   * Debounced refresh that coalesces rapid refresh calls
+   */
+  private debouncedRefresh(): void {
+    const debounceMs = workspace.getConfiguration('ollama').get<number>('debounceInterval') || 300;
+    const now = Date.now();
+
+    if (this.refreshTimeout) {
+      clearTimeout(this.refreshTimeout);
+    }
+
+    // Only refresh if debounce interval has passed
+    if (now - this.lastRefreshTime >= debounceMs) {
+      this.lastRefreshTime = now;
+      this.treeChangeEmitter.fire(null);
+    } else {
+      // Schedule refresh for later
+      this.refreshTimeout = setTimeout(
+        () => {
+          this.lastRefreshTime = Date.now();
+          this.treeChangeEmitter.fire(null);
+          this.refreshTimeout = null;
+        },
+        debounceMs - (now - this.lastRefreshTime),
+      );
+    }
+  }
+
+  /**
+   * Start auto-refresh timers for local models and library
+   */
+  private startAutoRefresh(): void {
+    const localRefreshSecs = workspace.getConfiguration('ollama').get<number>('localModelRefreshInterval') || 30;
+
+    // Auto-refresh local/running models every 30 seconds
+    if (localRefreshSecs > 0) {
+      const localInterval = setInterval(() => {
+        this.debouncedRefresh();
+      }, localRefreshSecs * 1000);
+      this.refreshIntervals.push(localInterval);
+    }
+
+    // Auto-refresh library every 6 hours
+    const libraryRefreshSecs = workspace.getConfiguration('ollama').get<number>('libraryRefreshInterval') || 21600;
+    if (libraryRefreshSecs > 0) {
+      const libraryInterval = setInterval(() => {
+        const now = Date.now();
+        if (now - this.libraryLastRefreshTime >= libraryRefreshSecs * 1000) {
+          this.libraryLastRefreshTime = now;
+          this.debouncedRefresh();
+        }
+      }, libraryRefreshSecs * 1000);
+      this.refreshIntervals.push(libraryInterval);
+    }
+
+    // Watch for settings changes and restart intervals
+    workspace.onDidChangeConfiguration(e => {
+      if (
+        e.affectsConfiguration('ollama.localModelRefreshInterval') ||
+        e.affectsConfiguration('ollama.libraryRefreshInterval')
+      ) {
+        this.stopAutoRefresh();
+        this.startAutoRefresh();
+      }
+    });
+  }
+
+  /**
+   * Stop all auto-refresh timers
+   */
+  private stopAutoRefresh(): void {
+    for (const interval of this.refreshIntervals) {
+      clearInterval(interval);
+    }
+    this.refreshIntervals = [];
+  }
+
+  /**
+   * Dispose resources
+   */
+  dispose(): void {
+    this.stopAutoRefresh();
+    if (this.refreshTimeout) {
+      clearTimeout(this.refreshTimeout);
+    }
   }
 
   /**
@@ -178,7 +274,14 @@ export function registerSidebar(context: ExtensionContext, client: Ollama): void
 
   context.subscriptions.push(
     window.registerTreeDataProvider('ollama-sidebar', provider),
-    commands.registerCommand('ollama-copilot.refreshSidebar', () => provider.refresh()),
+    commands.registerCommand('ollama-copilot.refreshSidebar', () => {
+      provider.refresh();
+      window.showInformationMessage('Models refreshed');
+    }),
+    commands.registerCommand('ollama-copilot.refreshLibrary', () => {
+      provider.refresh();
+      window.showInformationMessage('Library catalog refreshed');
+    }),
     commands.registerCommand('ollama-copilot.deleteModel', (item: ModelTreeItem) => {
       if (item.type === 'model' || item.type === 'running') {
         void provider.deleteModel(item.label);
@@ -198,22 +301,8 @@ export function registerSidebar(context: ExtensionContext, client: Ollama): void
         void provider.stopModel(item.label);
       }
     }),
+    {
+      dispose: () => provider.dispose(),
+    },
   );
-
-  // Set up auto-refresh based on settings
-  const config = workspace.getConfiguration('ollama');
-  const refreshInterval = config.get<number>('refreshInterval') || 5;
-  if (refreshInterval > 0) {
-    setInterval(() => provider.refresh(), refreshInterval * 1000);
-  }
-
-  // Watch for settings changes
-  workspace.onDidChangeConfiguration(e => {
-    if (e.affectsConfiguration('ollama.refreshInterval')) {
-      const newInterval = workspace.getConfiguration('ollama').get<number>('refreshInterval') || 5;
-      if (newInterval > 0) {
-        setInterval(() => provider.refresh(), newInterval * 1000);
-      }
-    }
-  });
 }

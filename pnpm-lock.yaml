@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       ollama:
-        specifier: ^0.5.8
-        version: 0.5.18
+        specifier: ^0.6.3
+        version: 0.6.3
     devDependencies:
       '@octokit/rest':
         specifier: ^22.0.1
@@ -1768,8 +1768,8 @@ packages:
   obug@2.1.1:
     resolution: {integrity: sha512-uTqF9MuPraAQ+IsnPf366RG4cP9RtUi7MLO1N3KEc+wb0a6yKpeL0lmk2IB1jY5KHPAlTc6T/JRdC/YqxHNwkQ==}
 
-  ollama@0.5.18:
-    resolution: {integrity: sha512-lTFqTf9bo7Cd3hpF6CviBe/DEhewjoZYd9N/uCe7O20qYTvGqrNOFOBDj3lbZgFWHUgDv5EeyusYxsZSLS8nvg==}
+  ollama@0.6.3:
+    resolution: {integrity: sha512-KEWEhIqE5wtfzEIZbDCLH51VFZ6Z3ZSa6sIOg/E/tBV8S51flyqBOXi+bRxlOYKDf8i327zG9eSTb8IJxvm3Zg==}
 
   once@1.4.0:
     resolution: {integrity: sha512-lNaJgI+2Q5URQBkccEKHTQOPaXdUxnZZElQTZY0MFUAuaEqe1E+Nyvgdz/aIyNi6Z9MzO5dv1H8n58/GELp3+w==}
@@ -4043,7 +4043,7 @@ snapshots:
 
   obug@2.1.1: {}
 
-  ollama@0.5.18:
+  ollama@0.6.3:
     dependencies:
       whatwg-fetch: 3.6.20
 
