@@ -992,15 +992,17 @@ describe('Extracted command handlers', () => {
 
     const localProvider = new LocalModelsProvider(mockClient);
 
+    // Collect the promise for the badge update before awaiting getChildren
     const models = await localProvider.getChildren();
-    // Wait for async badge update
-    await new Promise(r => setTimeout(r, 50));
+
+    // Flush all microtasks / pending promises so the async badge update completes
+    await Promise.resolve();
+    await Promise.resolve();
 
     expect(models).toHaveLength(1);
-    // After capability fetch, description should include tools badge
-    // We trigger by waiting for the async update
     const item = models[0];
     expect(item.label).toBe('llama3-tools:latest');
+    expect(item.description).toContain('[tools]');
     localProvider.dispose();
   });
 });
