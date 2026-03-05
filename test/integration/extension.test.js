@@ -1,3 +1,4 @@
+/* eslint-disable jest/expect-expect */
 'use strict';
 const assert = require('assert');
 const vscode = require('vscode');

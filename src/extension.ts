@@ -3,11 +3,61 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
 import { getOllamaClient, testConnection } from './client.js';
+import { createDiagnosticsLogger, getConfiguredLogLevel, type DiagnosticsLogger } from './diagnostics.js';
 import { OllamaChatModelProvider } from './provider.js';
 import { registerSidebar } from './sidebar.js';
 
+const LANGUAGE_MODEL_VENDOR = 'selfagency-ollama';
+
+/**
+ * Build and send a message to the language model
+ */
+export async function handleChatRequest(
+  request: vscode.ChatRequest,
+  chatContext: vscode.ChatContext,
+  stream: vscode.ChatResponseStream,
+  token: vscode.CancellationToken,
+): Promise<void> {
+  const messages: vscode.LanguageModelChatMessage[] = [];
+
+  for (const turn of chatContext.history) {
+    if (turn instanceof vscode.ChatRequestTurn) {
+      messages.push(vscode.LanguageModelChatMessage.User(turn.prompt));
+    } else if (turn instanceof vscode.ChatResponseTurn) {
+      const text = turn.response
+        .filter((r): r is vscode.ChatResponseMarkdownPart => r instanceof vscode.ChatResponseMarkdownPart)
+        .map(r => r.value.value)
+        .join('');
+      if (text) {
+        messages.push(vscode.LanguageModelChatMessage.Assistant(text));
+      }
+    }
+  }
+
+  messages.push(vscode.LanguageModelChatMessage.User(request.prompt));
+
+  try {
+    const response = await request.model.sendRequest(messages, {}, token);
+    for await (const chunk of response.stream) {
+      if (chunk instanceof vscode.LanguageModelTextPart) {
+        stream.markdown(chunk.value);
+      }
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    stream.markdown(`Error: ${message}`);
+  }
+}
+
 export async function activate(context: vscode.ExtensionContext) {
   let logTailProcess: ChildProcessWithoutNullStreams | undefined;
+  const noopLogger: DiagnosticsLogger = {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    exception: () => {},
+  };
 
   const stopLogStreaming = () => {
     if (!logTailProcess) {
@@ -18,7 +68,7 @@ export async function activate(context: vscode.ExtensionContext) {
     logTailProcess = undefined;
   };
 
-  const startLogStreaming = (output: vscode.LogOutputChannel) => {
+  const startLogStreaming = (output: Pick<DiagnosticsLogger, 'info' | 'warn' | 'error'>) => {
     stopLogStreaming();
 
     const onData = (chunk: Buffer, stream: 'stdout' | 'stderr') => {
@@ -79,35 +129,60 @@ export async function activate(context: vscode.ExtensionContext) {
       ? vscode.window.createOutputChannel('Ollama for Copilot', { log: true })
       : undefined;
 
+  const diagnostics = logOutputChannel
+    ? createDiagnosticsLogger(logOutputChannel, () => getConfiguredLogLevel())
+    : noopLogger;
+
   logOutputChannel?.show(true);
-  logOutputChannel?.info('[Ollama] Activating extension...');
+  diagnostics.info('[Ollama] Activating extension...');
 
   const client = await getOllamaClient(context);
   const config = vscode.workspace.getConfiguration('ollama');
   const host = config.get<string>('host') || 'http://localhost:11434';
   const autoStartLogStreaming = config.get<boolean>('autoStartLogStreaming') ?? true;
-  logOutputChannel?.info(`[Ollama] Configured host: ${host}`);
-  logOutputChannel?.info(`[Ollama] Auto-start log streaming: ${autoStartLogStreaming ? 'enabled' : 'disabled'}`);
+  diagnostics.info(`[Ollama] Configured host: ${host}`);
+  diagnostics.info(`[Ollama] Auto-start log streaming: ${autoStartLogStreaming ? 'enabled' : 'disabled'}`);
+  diagnostics.info(`[Ollama] Diagnostics log level: ${getConfiguredLogLevel()}`);
 
-  const provider = new OllamaChatModelProvider(context, client, logOutputChannel!);
-  context.subscriptions.push(
-    vscode.lm.registerLanguageModelChatProvider('ollama', provider),
+  const provider = new OllamaChatModelProvider(context, client, diagnostics);
+  let lmProviderDisposable: vscode.Disposable | undefined;
+  try {
+    lmProviderDisposable = vscode.lm.registerLanguageModelChatProvider(LANGUAGE_MODEL_VENDOR, provider);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('already registered')) {
+      diagnostics.warn(
+        `[Ollama] Language model provider vendor "${LANGUAGE_MODEL_VENDOR}" is already registered. Skipping duplicate registration.`,
+      );
+    } else {
+      diagnostics.exception('[Ollama] Language model provider registration failed', error);
+      throw error;
+    }
+  }
+
+  const subscriptions: vscode.Disposable[] = [
     vscode.commands.registerCommand('ollama-copilot.manageAuthToken', async () => {
       await provider.setAuthToken();
     }),
     {
       dispose: () => stopLogStreaming(),
     },
-  );
+  ];
+
+  if (lmProviderDisposable) {
+    subscriptions.unshift(lmProviderDisposable);
+  }
+
+  context.subscriptions.push(...subscriptions);
 
   // Register sidebar view
-  registerSidebar(context, client, logOutputChannel);
+  registerSidebar(context, client, diagnostics);
 
   // Test connection to Ollama server on startup (non-blocking)
   void (async () => {
     try {
       const isConnected = await testConnection(client);
-      logOutputChannel?.info(`[Ollama] Connection test result: ${isConnected ? 'connected' : 'not connected'}`);
+      diagnostics.info(`[Ollama] Connection test result: ${isConnected ? 'connected' : 'not connected'}`);
       if (!isConnected) {
         const selection = await vscode.window.showErrorMessage(
           `Cannot connect to Ollama server at ${host}. Please check your ollama.host setting and authentication token.`,
@@ -118,32 +193,33 @@ export async function activate(context: vscode.ExtensionContext) {
         }
       }
     } catch (error) {
-      if (logOutputChannel) {
-        const message = error instanceof Error ? error.message : String(error);
-        logOutputChannel.error(`[Ollama] Connection test failed: ${message}`);
-      }
+      diagnostics.exception('[Ollama] Connection test failed', error);
     }
   })();
 
   if (logOutputChannel) {
-    logOutputChannel.info('[Ollama] Activation complete');
+    diagnostics.info('[Ollama] Activation complete');
     if (autoStartLogStreaming) {
-      startLogStreaming(logOutputChannel);
+      startLogStreaming(diagnostics);
     }
 
     context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration(event => {
+        if (event.affectsConfiguration('ollama.diagnostics.logLevel')) {
+          diagnostics.info(`[Ollama] Diagnostics log level changed to: ${getConfiguredLogLevel()}`);
+        }
+
         if (!event.affectsConfiguration('ollama.autoStartLogStreaming')) {
           return;
         }
 
         const enabled = vscode.workspace.getConfiguration('ollama').get<boolean>('autoStartLogStreaming') ?? true;
-        logOutputChannel.info(`[Ollama] Auto-start log streaming setting changed: ${enabled ? 'enabled' : 'disabled'}`);
+        diagnostics.info(`[Ollama] Auto-start log streaming setting changed: ${enabled ? 'enabled' : 'disabled'}`);
         if (enabled) {
-          startLogStreaming(logOutputChannel);
+          startLogStreaming(diagnostics);
         } else {
           stopLogStreaming();
-          logOutputChannel.info('[Ollama] Log streaming disabled via settings');
+          diagnostics.info('[Ollama] Log streaming disabled via settings');
         }
       }),
     );
@@ -157,35 +233,7 @@ export async function activate(context: vscode.ExtensionContext) {
     stream: vscode.ChatResponseStream,
     token: vscode.CancellationToken,
   ): Promise<void> => {
-    const messages: vscode.LanguageModelChatMessage[] = [];
-
-    for (const turn of chatContext.history) {
-      if (turn instanceof vscode.ChatRequestTurn) {
-        messages.push(vscode.LanguageModelChatMessage.User(turn.prompt));
-      } else if (turn instanceof vscode.ChatResponseTurn) {
-        const text = turn.response
-          .filter((r): r is vscode.ChatResponseMarkdownPart => r instanceof vscode.ChatResponseMarkdownPart)
-          .map(r => r.value.value)
-          .join('');
-        if (text) {
-          messages.push(vscode.LanguageModelChatMessage.Assistant(text));
-        }
-      }
-    }
-
-    messages.push(vscode.LanguageModelChatMessage.User(request.prompt));
-
-    try {
-      const response = await request.model.sendRequest(messages, {}, token);
-      for await (const chunk of response.stream) {
-        if (chunk instanceof vscode.LanguageModelTextPart) {
-          stream.markdown(chunk.value);
-        }
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      stream.markdown(`Error: ${message}`);
-    }
+    await handleChatRequest(request, chatContext, stream, token);
   };
 
   const participant = vscode.chat.createChatParticipant('ollama-copilot.ollama', participantHandler);

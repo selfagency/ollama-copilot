@@ -35,7 +35,11 @@
   "publisher": "selfagency",
   "main": "./dist/extension.js",
   "scripts": {
-    "prepare": "husky"
+    "compile": "task compile",
+    "prepare": "husky",
+    "test": "task unit-tests",
+    "test:coverage": "task unit-test-coverage",
+    "test:extension": "task extension-tests"
   },
   "dependencies": {
     "ollama": "^0.6.3"
@@ -81,7 +85,7 @@
         {
           "id": "ollama-explorer",
           "title": "Ollama",
-          "icon": "ollama.png"
+          "icon": "ollama.svg"
         }
       ]
     },
@@ -104,7 +108,7 @@
         },
         {
           "id": "ollama-model-preview",
-          "name": "Model Preview",
+          "name": "Model Details",
           "type": "webview"
         }
       ]
@@ -112,75 +116,90 @@
     "commands": [
       {
         "command": "ollama-copilot.manageAuthToken",
-        "title": "Ollama: Manage Auth Token"
+        "title": "Manage Ollama Auth Token"
       },
       {
         "command": "ollama-copilot.refreshSidebar",
-        "title": "Refresh Local Models",
+        "title": "Refresh Local Ollama Models",
         "icon": "$(refresh)"
       },
       {
         "command": "ollama-copilot.refreshLocalModels",
-        "title": "Refresh Local Models",
+        "title": "Refresh Local Ollama Models",
         "icon": "$(refresh)"
       },
       {
         "command": "ollama-copilot.refreshLibrary",
-        "title": "Refresh Library",
+        "title": "Refresh Ollama Library",
         "icon": "$(refresh)"
       },
       {
+        "command": "ollama-copilot.sortLibraryByName",
+        "title": "Sort Ollama Library by name",
+        "icon": "$(sort-precedence)"
+      },
+      {
+        "command": "ollama-copilot.sortLibraryByRecency",
+        "title": "Sort Ollama Library by recency",
+        "icon": "$(sort-precedence)"
+      },
+      {
         "command": "ollama-copilot.deleteModel",
-        "title": "Delete Model",
+        "title": "Delete Ollama Model",
         "icon": "$(trash)"
       },
       {
         "command": "ollama-copilot.pullModel",
-        "title": "Pull Model",
+        "title": "Pull Ollama Model",
         "icon": "$(cloud-download)"
       },
       {
         "command": "ollama-copilot.stopModel",
-        "title": "Stop Model",
+        "title": "Stop Ollama Model",
         "icon": "$(stop-circle)"
       },
       {
         "command": "ollama-copilot.startModel",
-        "title": "Start Model",
+        "title": "Start Ollama Model",
         "icon": "$(play-circle)"
       },
       {
         "command": "ollama-copilot.pullModelFromLibrary",
-        "title": "Pull Model",
+        "title": "Pull Ollama Model",
         "icon": "$(cloud-download)"
       },
       {
         "command": "ollama-copilot.openLibraryModelPage",
-        "title": "Open Model Page",
+        "title": "Open Ollama Model Page",
         "icon": "$(link-external)"
       },
       {
         "command": "ollama-copilot.previewLibraryModel",
-        "title": "Preview Model",
+        "title": "Ollama Model Details",
         "icon": "$(preview)"
       },
       {
+        "command": "ollama-copilot.showModelDetails",
+        "title": "Ollama Model Details",
+        "icon": "$(info)"
+      },
+      {
         "command": "ollama-copilot.refreshCloudModels",
-        "title": "Refresh Cloud Models",
+        "title": "Refresh Ollama Cloud Models",
         "icon": "$(refresh)"
       },
       {
         "command": "ollama-copilot.manageCloudApiKey",
-        "title": "Ollama: Manage Cloud API Key"
+        "title": "Manage Ollama Cloud API Key"
       },
       {
         "command": "ollama-copilot.startCloudModel",
-        "title": "Run Cloud Model",
+        "title": "Run Ollama Cloud Model",
         "icon": "$(play-circle)"
       },
       {
         "command": "ollama-copilot.stopCloudModel",
-        "title": "Stop Cloud Model",
+        "title": "Stop Ollama Cloud Model",
         "icon": "$(stop-circle)"
       }
     ],
@@ -195,6 +214,16 @@
           "command": "ollama-copilot.refreshLibrary",
           "when": "view == ollama-library-models",
           "group": "navigation"
+        },
+        {
+          "command": "ollama-copilot.sortLibraryByRecency",
+          "when": "view == ollama-library-models && ollama.librarySortMode == name",
+          "group": "navigation@2"
+        },
+        {
+          "command": "ollama-copilot.sortLibraryByName",
+          "when": "view == ollama-library-models && ollama.librarySortMode == recency",
+          "group": "navigation@2"
         },
         {
           "command": "ollama-copilot.refreshCloudModels",
@@ -268,11 +297,6 @@
           "default": 0,
           "description": "Override context window size (0 = use model default)"
         },
-        "ollama.debounceInterval": {
-          "type": "number",
-          "default": 300,
-          "description": "Debounce interval for sidebar refresh in milliseconds"
-        },
         "ollama.localModelRefreshInterval": {
           "type": "number",
           "default": 30,
@@ -281,18 +305,38 @@
         "ollama.libraryRefreshInterval": {
           "type": "number",
           "default": 21600,
-          "description": "Auto-refresh library catalog interval in seconds (default 6 hours)"
+          "description": "Auto-refresh library and cloud model catalogs interval in seconds (default 6 hours)"
+        },
+        "ollama.librarySortMode": {
+          "type": "string",
+          "default": "name",
+          "enum": [
+            "name",
+            "recency"
+          ],
+          "description": "Sort mode for library models: Alphabetical by name or by recency"
         },
         "ollama.autoStartLogStreaming": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically start streaming Ollama server logs to the Ollama for Copilot output channel on extension startup"
+          "description": "Stream Ollama server logs to the Ollama for Copilot output channel"
+        },
+        "ollama.diagnostics.logLevel": {
+          "type": "string",
+          "default": "info",
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "description": "Controls Ollama extension diagnostics verbosity in the output channel"
         }
       }
     },
     "languageModelChatProviders": [
       {
-        "vendor": "ollama",
+        "vendor": "selfagency-ollama",
         "displayName": "Ollama",
         "configuration": {
           "managementCommand": "ollama-copilot.manageAuthToken"
@@ -311,7 +355,7 @@
   },
   "activationEvents": [
     "onChatParticipant:ollama-copilot.ollama",
-    "onLanguageModelChatProvider:ollama",
+    "onLanguageModelChatProvider:selfagency-ollama",
     "onStartupFinished"
   ],
   "icon": "logo.png",
