@@ -947,6 +947,7 @@ describe('handleChatRequest errors', () => {
     const mockRequest = {
       prompt: 'test',
       model: {
+        vendor: 'selfagency-ollama',
         sendRequest: vi.fn(() => {
           throw new Error('Model error');
         }),
@@ -959,6 +960,122 @@ describe('handleChatRequest errors', () => {
     await ext.handleChatRequest(mockRequest as any, mockChatContext as any, mockStream as any, mockToken as any);
 
     expect(mockMarkdown).toHaveBeenCalledWith(expect.stringContaining('Error: Model error'));
+  });
+});
+
+describe('handleChatRequest model selection', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it('shows error when no Ollama models are available', async () => {
+    const mockSelectChatModels = vi.fn().mockResolvedValue([]);
+
+    vi.doMock('vscode', () => ({
+      LanguageModelTextPart: class { constructor(public value: string) {} },
+      ChatRequestTurn: class {},
+      ChatResponseTurn: class {},
+      ChatResponseMarkdownPart: class {},
+      LanguageModelChatMessage: {
+        User: (content: string) => ({ content }),
+        Assistant: (content: string) => ({ content }),
+      },
+      lm: { selectChatModels: mockSelectChatModels },
+    }));
+
+    const ext = await import('./extension.js');
+    const mockMarkdown = vi.fn();
+    const mockRequest = { prompt: 'test', model: { vendor: 'copilot' } };
+
+    await ext.handleChatRequest(
+      mockRequest as any,
+      { history: [] } as any,
+      { markdown: mockMarkdown } as any,
+      { isCancellationRequested: false } as any,
+    );
+
+    expect(mockMarkdown).toHaveBeenCalledWith(expect.stringContaining('No Ollama models available'));
+  });
+
+  it('uses model from selectChatModels when request.model is not our vendor', async () => {
+    const LMTextPart = class { constructor(public value: string) {} };
+    const mockSendRequest = vi.fn().mockResolvedValue({
+      stream: (async function* () {
+        yield new LMTextPart('hello from ollama');
+      })(),
+    });
+    const mockSelectChatModels = vi.fn().mockResolvedValue([
+      { vendor: 'selfagency-ollama', sendRequest: mockSendRequest },
+    ]);
+
+    vi.doMock('vscode', () => ({
+      LanguageModelTextPart: LMTextPart,
+      ChatRequestTurn: class {},
+      ChatResponseTurn: class {},
+      ChatResponseMarkdownPart: class {},
+      LanguageModelChatMessage: {
+        User: (content: string) => ({ content }),
+        Assistant: (content: string) => ({ content }),
+      },
+      lm: { selectChatModels: mockSelectChatModels },
+      workspace: { getConfiguration: vi.fn().mockReturnValue({ get: vi.fn() }) },
+    }));
+
+    const ext = await import('./extension.js');
+    const mockMarkdown = vi.fn();
+    const mockRequest = { prompt: 'test', model: { vendor: 'copilot' } };
+
+    await ext.handleChatRequest(
+      mockRequest as any,
+      { history: [] } as any,
+      { markdown: mockMarkdown } as any,
+      { isCancellationRequested: false } as any,
+    );
+
+    expect(mockSelectChatModels).toHaveBeenCalled();
+    expect(mockSendRequest).toHaveBeenCalled();
+    expect(mockMarkdown).toHaveBeenCalledWith('hello from ollama');
+  });
+
+  it('uses request.model directly when it is already our vendor', async () => {
+    const LMTextPart = class { constructor(public value: string) {} };
+    const mockSelectChatModels = vi.fn();
+    const mockSendRequest = vi.fn().mockResolvedValue({
+      stream: (async function* () {
+        yield new LMTextPart('response from chosen model');
+      })(),
+    });
+
+    vi.doMock('vscode', () => ({
+      LanguageModelTextPart: LMTextPart,
+      ChatRequestTurn: class {},
+      ChatResponseTurn: class {},
+      ChatResponseMarkdownPart: class {},
+      LanguageModelChatMessage: {
+        User: (content: string) => ({ content }),
+        Assistant: (content: string) => ({ content }),
+      },
+      lm: { selectChatModels: mockSelectChatModels },
+      workspace: { getConfiguration: vi.fn().mockReturnValue({ get: vi.fn() }) },
+    }));
+
+    const ext = await import('./extension.js');
+    const mockMarkdown = vi.fn();
+    const mockRequest = {
+      prompt: 'test',
+      model: { vendor: 'selfagency-ollama', sendRequest: mockSendRequest },
+    };
+
+    await ext.handleChatRequest(
+      mockRequest as any,
+      { history: [] } as any,
+      { markdown: mockMarkdown } as any,
+      { isCancellationRequested: false } as any,
+    );
+
+    expect(mockSendRequest).toHaveBeenCalled();
+    expect(mockMarkdown).toHaveBeenCalledWith('response from chosen model');
+    expect(mockSelectChatModels).not.toHaveBeenCalled();
   });
 });
 

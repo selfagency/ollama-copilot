@@ -91,8 +91,20 @@ export async function handleChatRequest(
 
   messages.push(vscode.LanguageModelChatMessage.User(request.prompt));
 
+  let model: vscode.LanguageModelChat;
+  if (request.model.vendor === LANGUAGE_MODEL_VENDOR) {
+    model = request.model;
+  } else {
+    const models = await vscode.lm.selectChatModels({ vendor: LANGUAGE_MODEL_VENDOR });
+    if (!models.length) {
+      stream.markdown('No Ollama models available. Pull a model first using the Ollama sidebar.');
+      return;
+    }
+    model = models[0];
+  }
+
   try {
-    const response = await request.model.sendRequest(messages, {}, token);
+    const response = await model.sendRequest(messages, {}, token);
     for await (const chunk of response.stream) {
       if (chunk instanceof vscode.LanguageModelTextPart) {
         stream.markdown(chunk.value);
