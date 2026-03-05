@@ -1117,7 +1117,7 @@ describe('handleBuiltInOllamaConflict', () => {
       },
       commands: {
         registerCommand: vi.fn(() => ({ dispose: vi.fn() })),
-        executeCommand: vi.fn(),
+        executeCommand: vi.fn().mockResolvedValue(undefined),
       },
       lm: {
         registerLanguageModelChatProvider: vi.fn(() => ({ dispose: vi.fn() })),
@@ -1167,23 +1167,25 @@ describe('handleBuiltInOllamaConflict', () => {
 
   it('does nothing when user dismisses the warning', async () => {
     const showWarningMessage = vi.fn().mockResolvedValue(undefined);
+    const showInformationMessage = vi.fn();
     const mockModel = { id: 'ollama:llama3', vendor: 'ollama', name: 'Llama 3' };
     const selectChatModels = vi.fn().mockResolvedValue([mockModel]);
 
     const ext = await import('./extension.js');
-    await ext.handleBuiltInOllamaConflict({ showWarningMessage, showInformationMessage: vi.fn() }, { selectChatModels });
+    await ext.handleBuiltInOllamaConflict({ showWarningMessage, showInformationMessage }, { selectChatModels });
 
     expect(showWarningMessage).toHaveBeenCalled();
-    // config.update should not be called — workspace mock returns a plain stub
+    expect(showInformationMessage).not.toHaveBeenCalled();
   });
 
-  it('updates config and shows reload prompt when user confirms', async () => {
+  it('shows reload prompt and triggers reload when user confirms', async () => {
     const showWarningMessage = vi.fn().mockResolvedValue('Disable Built-in Ollama Provider');
-    const showInformationMessage = vi.fn().mockResolvedValue(undefined);
+    const showInformationMessage = vi.fn().mockResolvedValue('Reload Window');
     const mockModel = { id: 'ollama:llama3', vendor: 'ollama', name: 'Llama 3' };
     const selectChatModels = vi.fn().mockResolvedValue([mockModel]);
 
     const ext = await import('./extension.js');
+    // No context passed — file write is skipped, but reload should still trigger
     await ext.handleBuiltInOllamaConflict({ showWarningMessage, showInformationMessage }, { selectChatModels });
 
     expect(showInformationMessage).toHaveBeenCalledWith(

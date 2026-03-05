@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { promises as fsPromises } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { getOllamaClient, testConnection } from './client.js';
 import { createDiagnosticsLogger, getConfiguredLogLevel, type DiagnosticsLogger } from './diagnostics.js';
@@ -67,10 +68,13 @@ export function setupChatParticipant(
 /**
  * Detect and offer to disable Copilot's conflicting built-in Ollama provider.
  * Detects by querying the LM API for models registered under vendor 'ollama'.
+ * Removes the entry by editing chatLanguageModels.json in the VS Code profile
+ * folder, located two levels above the extension's globalStorageUri.
  */
 export async function handleBuiltInOllamaConflict(
   windowApi?: Pick<typeof vscode.window, 'showWarningMessage' | 'showInformationMessage'>,
   lmApi?: Pick<typeof vscode.lm, 'selectChatModels'>,
+  context?: Pick<vscode.ExtensionContext, 'globalStorageUri'>,
 ): Promise<void> {
   const win = windowApi ?? vscode.window;
   const lm = lmApi ?? vscode.lm;
@@ -85,14 +89,28 @@ export async function handleBuiltInOllamaConflict(
 
   if (selection !== 'Disable Built-in Ollama Provider') return;
 
-  await vscode.workspace
-    .getConfiguration('github.copilot.chat')
-    .update('ollama.url', undefined, vscode.ConfigurationTarget.Global);
+  if (context) {
+    try {
+      // globalStorageUri is e.g. …/profiles/<hash>/globalStorage/<extId>/
+      // Going up two levels reaches the profile folder that contains chatLanguageModels.json.
+      const profileDir = dirname(dirname(context.globalStorageUri.fsPath));
+      const modelsFile = join(profileDir, 'chatLanguageModels.json');
+      const raw = await fsPromises.readFile(modelsFile, 'utf-8');
+      const models = JSON.parse(raw) as Array<Record<string, unknown>>;
+      const filtered = models.filter(m => m['vendor'] !== 'ollama');
+      await fsPromises.writeFile(modelsFile, JSON.stringify(filtered, null, 2) + '\n', 'utf-8');
+    } catch {
+      // File write failed; the reload message below still prompts the user
+    }
+  }
 
-  await win.showInformationMessage(
+  const choice = await win.showInformationMessage(
     "Copilot's built-in Ollama provider has been disabled. Reload VS Code to apply.",
     'Reload Window',
   );
+  if (choice === 'Reload Window') {
+    await vscode.commands.executeCommand('workbench.action.reloadWindow');
+  }
 }
 
 /**
@@ -279,10 +297,10 @@ export async function activate(context: vscode.ExtensionContext) {
   registerModelfileManager(context, client, diagnostics);
 
   // Detect and offer to disable Copilot's built-in Ollama provider (non-blocking)
-  void handleBuiltInOllamaConflict();
+  void handleBuiltInOllamaConflict(undefined, undefined, context);
   if (vscode.lm.onDidChangeChatModels) {
     context.subscriptions.push(
-      vscode.lm.onDidChangeChatModels(() => { void handleBuiltInOllamaConflict(); }),
+      vscode.lm.onDidChangeChatModels(() => { void handleBuiltInOllamaConflict(undefined, undefined, context); }),
     );
   }
 

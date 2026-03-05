@@ -117,6 +117,7 @@ export const lm = {
 
 export const commands = {
   registerCommand: vi.fn().mockReturnValue({ dispose: vi.fn() }),
+  executeCommand: vi.fn().mockResolvedValue(undefined),
 };
 
 export class MarkdownString {
