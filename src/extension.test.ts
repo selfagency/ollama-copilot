@@ -854,3 +854,165 @@ describe('handleChatRequest', () => {
     expect(typeof ext.handleChatRequest).toBe('function');
   });
 });
+
+describe('handleConnectionTestFailure', () => {
+  it('shows error message and executes command when Open Settings selected', async () => {
+    const showErrorMessage = vi.fn().mockResolvedValue('Open Settings');
+    const executeCommand = vi.fn().mockResolvedValue(undefined);
+
+    const ext = await import('./extension.js');
+    await ext.handleConnectionTestFailure('http://localhost:11434', { showErrorMessage }, { executeCommand });
+
+    expect(showErrorMessage).toHaveBeenCalledWith(
+      expect.stringContaining('Cannot connect to Ollama server'),
+      'Open Settings',
+    );
+    expect(executeCommand).toHaveBeenCalledWith('workbench.action.openSettings', 'ollama');
+  });
+
+  it('shows error message but does not execute command when not selected', async () => {
+    const showErrorMessage = vi.fn().mockResolvedValue(undefined);
+    const executeCommand = vi.fn();
+
+    const ext = await import('./extension.js');
+    await ext.handleConnectionTestFailure('http://localhost:11434', { showErrorMessage }, { executeCommand });
+
+    expect(showErrorMessage).toHaveBeenCalledWith(
+      expect.stringContaining('Cannot connect to Ollama server'),
+      'Open Settings',
+    );
+    expect(executeCommand).not.toHaveBeenCalled();
+  });
+});
+
+describe('setupChatParticipant', () => {
+  it('creates and configures chat participant', async () => {
+    const mockParticipant = {
+      iconPath: undefined,
+      dispose: vi.fn(),
+    };
+    const createChatParticipant = vi.fn(() => mockParticipant);
+    const joinPath = vi.fn((_base: any, path: string) => ({ fsPath: path }));
+
+    const ext = await import('./extension.js');
+    const mockHandler = vi.fn() as any;
+    const mockContext = { extensionUri: '/test' };
+
+    const result = ext.setupChatParticipant(
+      mockContext as any,
+      mockHandler,
+      { createChatParticipant } as any,
+      { joinPath } as any,
+    );
+
+    expect(createChatParticipant).toHaveBeenCalledWith('ollama-copilot.ollama', mockHandler);
+    expect(joinPath).toHaveBeenCalledWith('/test', 'logo.png');
+    expect(mockParticipant.iconPath).toBeDefined();
+    expect(result).toBe(mockParticipant);
+  });
+});
+
+describe('handleChatRequest errors', () => {
+  it('handles errors during chat request', async () => {
+    const mockMarkdown = vi.fn();
+    const mockStream = { markdown: mockMarkdown };
+
+    const ext = await import('./extension.js');
+
+    const mockRequest = {
+      prompt: 'test',
+      model: {
+        sendRequest: vi.fn(() => {
+          throw new Error('Model error');
+        }),
+      },
+    };
+
+    const mockChatContext = { history: [] };
+    const mockToken = { isCancellationRequested: false };
+
+    await ext.handleChatRequest(mockRequest as any, mockChatContext as any, mockStream as any, mockToken as any);
+
+    expect(mockMarkdown).toHaveBeenCalledWith(expect.stringContaining('Error: Model error'));
+  });
+});
+
+describe('handleConfigurationChange', () => {
+  it('calls onLogLevelChange when log level configuration changes', async () => {
+    const mockDiagnostics = { info: vi.fn() };
+    const onLogLevelChange = vi.fn();
+
+    const ext = await import('./extension.js');
+    const event = {
+      affectsConfiguration: vi.fn((key: string) => {
+        if (key === 'ollama.diagnostics.logLevel') return true;
+        if (key === 'ollama.autoStartLogStreaming') return false;
+        return false;
+      }),
+    };
+
+    ext.handleConfigurationChange(event as any, mockDiagnostics as any, onLogLevelChange, undefined);
+
+    expect(onLogLevelChange).toHaveBeenCalled();
+    expect(mockDiagnostics.info).toHaveBeenCalledWith(expect.stringContaining('Diagnostics log level changed'));
+  });
+
+  it('calls onAutoStartChange when auto-start configuration changes', async () => {
+    const mockDiagnostics = { info: vi.fn() };
+    const onAutoStartChange = vi.fn();
+
+    const ext = await import('./extension.js');
+    const event = {
+      affectsConfiguration: vi.fn((key: string) => {
+        if (key === 'ollama.diagnostics.logLevel') return false;
+        if (key === 'ollama.autoStartLogStreaming') return true;
+        return false;
+      }),
+    };
+
+    ext.handleConfigurationChange(event as any, mockDiagnostics as any, undefined, onAutoStartChange);
+
+    expect(onAutoStartChange).toHaveBeenCalled();
+    expect(mockDiagnostics.info).toHaveBeenCalledWith(
+      expect.stringContaining('Auto-start log streaming setting changed'),
+    );
+  });
+
+  it('returns early if autoStartLogStreaming configuration is not affected', async () => {
+    const mockDiagnostics = { info: vi.fn() };
+    const onAutoStartChange = vi.fn();
+
+    const ext = await import('./extension.js');
+    const event = {
+      affectsConfiguration: vi.fn((key: string) => {
+        if (key === 'ollama.diagnostics.logLevel') return false;
+        if (key === 'ollama.autoStartLogStreaming') return false;
+        return false;
+      }),
+    };
+
+    ext.handleConfigurationChange(event as any, mockDiagnostics as any, undefined, onAutoStartChange);
+
+    expect(onAutoStartChange).not.toHaveBeenCalled();
+  });
+
+  it('calls both callbacks when both configurations change', async () => {
+    const mockDiagnostics = { info: vi.fn() };
+    const onLogLevelChange = vi.fn();
+    const onAutoStartChange = vi.fn();
+
+    const ext = await import('./extension.js');
+    const event = {
+      affectsConfiguration: vi.fn((key: string) => {
+        if (key === 'ollama.diagnostics.logLevel') return true;
+        if (key === 'ollama.autoStartLogStreaming') return true;
+        return false;
+      }),
+    };
+
+    ext.handleConfigurationChange(event as any, mockDiagnostics as any, onLogLevelChange, onAutoStartChange);
+
+    expect(onLogLevelChange).toHaveBeenCalled();
+    expect(onAutoStartChange).toHaveBeenCalled();
+  });
+});

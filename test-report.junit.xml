@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="109" failures="0" errors="0" time="0.632845249">
+    <testsuite name="src/contributes.test.ts" timestamp="2026-03-05T19:11:54.465Z" hostname="selfagency-m1mb.munchkin-mamba.ts.net" tests="4" failures="0" errors="0" skipped="0" time="0.0034525">
+        <testcase classname="src/contributes.test.ts" name="package contributes integrity &gt; references only declared commands from view menus" time="0.001247583">
+        </testcase>
+        <testcase classname="src/contributes.test.ts" name="package contributes integrity &gt; uses valid view IDs in view menu when clauses" time="0.0004505">
+        </testcase>
+        <testcase classname="src/contributes.test.ts" name="package contributes integrity &gt; keeps language model activation event aligned with provider vendor" time="0.000579667">
+        </testcase>
+        <testcase classname="src/contributes.test.ts" name="package contributes integrity &gt; references an existing activity bar icon file" time="0.000235583">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/diagnostics.test.ts" timestamp="2026-03-05T19:11:54.466Z" hostname="selfagency-m1mb.munchkin-mamba.ts.net" tests="20" failures="0" errors="0" skipped="0" time="0.099500791">
+        <testcase classname="src/diagnostics.test.ts" name="diagnostics &gt; getConfiguredLogLevel &gt; returns debug when configured" time="0.02964875">
+        </testcase>
+        <testcase classname="src/diagnostics.test.ts" name="diagnostics &gt; getConfiguredLogLevel &gt; returns info when configured" time="0.003048958">
+        </testcase>
+        <testcase classname="src/diagnostics.test.ts" name="diagnostics &gt; getConfiguredLogLevel &gt; returns warn when configured" time="0.023758833">
+        </testcase>
+        <testcase classname="src/diagnostics.test.ts" name="diagnostics &gt; getConfiguredLogLevel &gt; returns error when configured" time="0.004219125">
+        </testcase>
+        <testcase classname="src/diagnostics.test.ts" name="diagnostics &gt; getConfiguredLogLevel &gt; returns info as default when invalid value configured" time="0.004705542">
+        </testcase>
+        <testcase classname="src/diagnostics.test.ts" name="diagnostics &gt; getConfiguredLogLevel &gt; returns info as default when undefined" time="0.003444083">
+        </testcase>
+        <testcase classname="src/diagnostics.test.ts" name="diagnostics &gt; createDiagnosticsLogger &gt; logs debug messages when level is debug" time="0.003444042">
+        </testcase>
+        <testcase classname="src/diagnostics.test.ts" name="diagnostics &gt; createDiagnosticsLogger &gt; does not log debug messages when level is info" time="0.002570875">
+        </testcase>
+        <testcase classname="src/diagnostics.test.ts" name="diagnostics &gt; createDiagnosticsLogger &gt; logs info messages when level is debug" time="0.0012625">
+        </testcase>
+        <testcase classname="src/diagnostics.test.ts" name="diagnostics &gt; createDiagnosticsLogger &gt; logs info messages when level is info" time="0.005259084">
+        </testcase>
+        <testcase classname="src/diagnostics.test.ts" name="diagnostics &gt; createDiagnosticsLogger &gt; does not log info messages when level is warn" time="0.000668333">
+        </testcase>
+        <testcase classname="src/diagnostics.test.ts" name="diagnostics &gt; createDiagnosticsLogger &gt; logs warn messages when level is warn" time="0.000967208">
+        </testcase>
+        <testcase classname="src/diagnostics.test.ts" name="diagnostics &gt; createDiagnosticsLogger &gt; does not log warn messages when level is error" time="0.0005875">
+        </testcase>
+        <testcase classname="src/diagnostics.test.ts" name="diagnostics &gt; createDiagnosticsLogger &gt; logs error messages when level is error" time="0.001442542">
+        </testcase>
+        <testcase classname="src/diagnostics.test.ts" name="diagnostics &gt; createDiagnosticsLogger &gt; logs exception with Error object" time="0.003649084">
+        </testcase>
+        <testcase classname="src/diagnostics.test.ts" name="diagnostics &gt; createDiagnosticsLogger &gt; logs exception with non-Error object" time="0.001439458">
+        </testcase>
+        <testcase classname="src/diagnostics.test.ts" name="diagnostics &gt; createDiagnosticsLogger &gt; logs exception with stack trace" time="0.002338375">
+        </testcase>
+        <testcase classname="src/diagnostics.test.ts" name="diagnostics &gt; createDiagnosticsLogger &gt; skips exception logging when level is higher than error" time="0.001814542">
+        </testcase>
+        <testcase classname="src/diagnostics.test.ts" name="diagnostics &gt; createDiagnosticsLogger &gt; handles dynamic log level changes" time="0.001084542">
+        </testcase>
+        <testcase classname="src/diagnostics.test.ts" name="diagnostics &gt; createDiagnosticsLogger &gt; logs messages at all levels correctly ordered" time="0.002273875">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/extension.test.ts" timestamp="2026-03-05T19:11:54.469Z" hostname="selfagency-m1mb.munchkin-mamba.ts.net" tests="17" failures="0" errors="0" skipped="0" time="0.120985916">
+        <testcase classname="src/extension.test.ts" name="activate &gt; registers language model provider during activation" time="0.0682125">
+        </testcase>
+        <testcase classname="src/extension.test.ts" name="activate &gt; does not throw when provider vendor is already registered" time="0.002350959">
+        </testcase>
+        <testcase classname="src/extension.test.ts" name="activate &gt; handles connection test success" time="0.013459958">
+        </testcase>
+        <testcase classname="src/extension.test.ts" name="activate &gt; handles connection test failure" time="0.013567667">
+        </testcase>
+        <testcase classname="src/extension.test.ts" name="activate &gt; enables log streaming on autoStartLogStreaming true" time="0.00791525">
+        </testcase>
+        <testcase classname="src/extension.test.ts" name="activate &gt; throws on unhandled registration error" time="0.002594042">
+        </testcase>
+        <testcase classname="src/extension.test.ts" name="activate &gt; registers command for managing auth tokens" time="0.006354084">
+        </testcase>
+        <testcase classname="src/extension.test.ts" name="activate &gt; handles autoStartLogStreaming configuration changes" time="0.0024845">
+        </testcase>
+        <testcase classname="src/extension.test.ts" name="handleChatRequest &gt; exports handleChatRequest function" time="0.000158875">
+        </testcase>
+        <testcase classname="src/extension.test.ts" name="handleConnectionTestFailure &gt; shows error message and executes command when Open Settings selected" time="0.000181084">
+        </testcase>
+        <testcase classname="src/extension.test.ts" name="handleConnectionTestFailure &gt; shows error message but does not execute command when not selected" time="0.000160042">
+        </testcase>
+        <testcase classname="src/extension.test.ts" name="setupChatParticipant &gt; creates and configures chat participant" time="0.000236541">
+        </testcase>
+        <testcase classname="src/extension.test.ts" name="handleChatRequest errors &gt; handles errors during chat request" time="0.000402792">
+        </testcase>
+        <testcase classname="src/extension.test.ts" name="handleConfigurationChange &gt; calls onLogLevelChange when log level configuration changes" time="0.000261916">
+        </testcase>
+        <testcase classname="src/extension.test.ts" name="handleConfigurationChange &gt; calls onAutoStartChange when auto-start configuration changes" time="0.00044775">
+        </testcase>
+        <testcase classname="src/extension.test.ts" name="handleConfigurationChange &gt; returns early if autoStartLogStreaming configuration is not affected" time="0.000199333">
+        </testcase>
+        <testcase classname="src/extension.test.ts" name="handleConfigurationChange &gt; calls both callbacks when both configurations change" time="0.000163916">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/provider.test.ts" timestamp="2026-03-05T19:11:54.470Z" hostname="selfagency-m1mb.munchkin-mamba.ts.net" tests="19" failures="0" errors="0" skipped="0" time="0.011984167">
+        <testcase classname="src/provider.test.ts" name="formatModelName &gt; capitalizes a single segment" time="0.001011667">
+        </testcase>
+        <testcase classname="src/provider.test.ts" name="formatModelName &gt; capitalizes each hyphen-separated segment" time="0.000112334">
+        </testcase>
+        <testcase classname="src/provider.test.ts" name="formatModelName &gt; handles numeric segments without error" time="0.000059667">
+        </testcase>
+        <testcase classname="src/provider.test.ts" name="formatModelName &gt; removes ollama/ prefix if present" time="0.0001475">
+        </testcase>
+        <testcase classname="src/provider.test.ts" name="OllamaChatModelProvider caching &gt; throttles model list refreshes inside 30 seconds" time="0.002366209">
+        </testcase>
+        <testcase classname="src/provider.test.ts" name="OllamaChatModelProvider caching &gt; reuses cached model details after refresh interval" time="0.000568583">
+        </testcase>
+        <testcase classname="src/provider.test.ts" name="OllamaChatModelProvider utility flows &gt; estimates token count from plain text" time="0.00019925">
+        </testcase>
+        <testcase classname="src/provider.test.ts" name="OllamaChatModelProvider utility flows &gt; estimates token count from message parts" time="0.000236542">
+        </testcase>
+        <testcase classname="src/provider.test.ts" name="OllamaChatModelProvider model detection &gt; detects vision models with clip family" time="0.000237458">
+        </testcase>
+        <testcase classname="src/provider.test.ts" name="OllamaChatModelProvider model detection &gt; detects vision models with vision family" time="0.000154208">
+        </testcase>
+        <testcase classname="src/provider.test.ts" name="OllamaChatModelProvider model detection &gt; detects tool models with Tools placeholder" time="0.00013875">
+        </testcase>
+        <testcase classname="src/provider.test.ts" name="OllamaChatModelProvider model detection &gt; handles missing model families gracefully" time="0.000173459">
+        </testcase>
+        <testcase classname="src/provider.test.ts" name="OllamaChatModelProvider error handling &gt; handles model list fetch errors gracefully" time="0.0007065">
+        </testcase>
+        <testcase classname="src/provider.test.ts" name="OllamaChatModelProvider error handling &gt; returns fallback models on show() failure" time="0.000177542">
+        </testcase>
+        <testcase classname="src/provider.test.ts" name="OllamaChatModelProvider error handling &gt; prunes cache when models are removed" time="0.000300375">
+        </testcase>
+        <testcase classname="src/provider.test.ts" name="OllamaChatModelProvider chat response &gt; handles cancellation token during chat" time="0.00038575">
+        </testcase>
+        <testcase classname="src/provider.test.ts" name="OllamaChatModelProvider chat response &gt; handles chat response errors" time="0.002403958">
+        </testcase>
+        <testcase classname="src/provider.test.ts" name="OllamaChatModelProvider chat response &gt; converts mixed message content correctly" time="0.000758583">
+        </testcase>
+        <testcase classname="src/provider.test.ts" name="OllamaChatModelProvider chat response &gt; handles tool calls in response" time="0.000353917">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/sidebar.test.ts" timestamp="2026-03-05T19:11:54.472Z" hostname="selfagency-m1mb.munchkin-mamba.ts.net" tests="49" failures="0" errors="0" skipped="0" time="0.396921875">
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; returns local models sorted alphabetically" time="0.121963875">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; adds tooltip process details for local models" time="0.002074">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; returns no children for nested element" time="0.00861025">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; formats running model description with size and duration" time="0.001194833">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; returns tree item unchanged" time="0.001230791">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; uses model details command when clicking local model items" time="0.002110167">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; uses model details command when clicking library model items" time="0.001796958">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; uses model details command when clicking cloud model items" time="0.0010845">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; shows status item when local models fail to load" time="0.001259625">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; shows status item when library fetch fails" time="0.001718583">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; sorts library models alphabetically by default" time="0.001847958">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; can sort library by recency order when selected" time="0.001671583">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; shows status item when cloud API key is missing" time="0.00099575">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; returns null for getTreeItem" time="0.001139541">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; handles model deletion" time="0.001438708">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; handles model stop command" time="0.002328375">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; library provider sort mode configuration" time="0.001134042">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; cloud provider handles empty API key" time="0.001047416">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; library provider handles fetch with no links" time="0.001043875">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; local models provider handles zero duration" time="0.002056125">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; cloud models provider handles large model size" time="0.229035125">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; formats sizes correctly" time="0.001784125">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; formats durations correctly for running models" time="0.000902334">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="LocalModelsProvider &gt; library provider stops auto-refresh on dispose" time="0.000851125">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handleRefreshLocalModels refreshes provider and shows message" time="0.000367416">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handleRefreshLibrary refreshes library and shows message" time="0.000108792">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handleRefreshCloudModels refreshes cloud provider" time="0.000096875">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handleSortLibraryByRecency sets sort mode and syncs context" time="0.000322916">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handleSortLibraryByName sets sort mode to name" time="0.000142542">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handleDeleteModel deletes local model" time="0.000131083">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handleDeleteModel ignores non-local models" time="0.000095792">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handleStartModel starts stopped local model" time="0.000103167">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handleStopModel stops running model" time="0.000100125">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handleOpenLibraryModel opens external URL" time="0.000092">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handleOpenCloudModel opens cloud model URL" time="0.000075375">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handleDeleteModel ignores null or status items" time="0.000073">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handleStartModel does nothing for running models" time="0.000074584">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handleStopModel handles cloud-running models" time="0.000084125">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handleStartCloudModel starts cloud-stopped models" time="0.000092167">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handleStopCloudModel stops cloud-running models" time="0.000100959">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handleOpenLibraryModelPage handles library-model type" time="0.000084959">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handleOpenLibraryModelPage ignores non-library models" time="0.000060708">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handlePreviewLibraryModel ignores non-library models" time="0.000117459">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handleShowModelDetails returns early for status items" time="0.000256875">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handleShowModelDetails shows local model details" time="0.000123792">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handlePullModel handles model name input" time="0.000091375">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handlePullModelFromLibrary handles library models" time="0.000139584">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handlePullModelFromLibrary ignores non-library models" time="0.000089375">
+        </testcase>
+        <testcase classname="src/sidebar.test.ts" name="Extracted command handlers &gt; handleManageCloudApiKey function is callable" time="0.000066167">
+        </testcase>
+    </testsuite>
+</testsuites>

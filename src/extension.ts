@@ -10,6 +10,62 @@ import { registerSidebar } from './sidebar.js';
 const LANGUAGE_MODEL_VENDOR = 'selfagency-ollama';
 
 /**
+ * Handle configuration changes for log level and auto-start log streaming
+ */
+export function handleConfigurationChange(
+  event: vscode.ConfigurationChangeEvent,
+  diagnostics: DiagnosticsLogger,
+  onLogLevelChange?: () => void,
+  onAutoStartChange?: (enabled: boolean) => void,
+): void {
+  if (event.affectsConfiguration('ollama.diagnostics.logLevel')) {
+    diagnostics.info(`[Ollama] Diagnostics log level changed to: ${getConfiguredLogLevel()}`);
+    onLogLevelChange?.();
+  }
+
+  if (!event.affectsConfiguration('ollama.autoStartLogStreaming')) {
+    return;
+  }
+
+  const enabled = vscode.workspace.getConfiguration('ollama').get<boolean>('autoStartLogStreaming') ?? true;
+  diagnostics.info(`[Ollama] Auto-start log streaming setting changed: ${enabled ? 'enabled' : 'disabled'}`);
+  onAutoStartChange?.(enabled);
+}
+export async function handleConnectionTestFailure(
+  host: string,
+  windowApi?: Pick<typeof vscode.window, 'showErrorMessage'>,
+  commandsApi?: Pick<typeof vscode.commands, 'executeCommand'>,
+): Promise<void> {
+  const window = windowApi || vscode.window;
+  const commands = commandsApi || vscode.commands;
+
+  const selection = await window.showErrorMessage(
+    `Cannot connect to Ollama server at ${host}. Please check your ollama.host setting and authentication token.`,
+    'Open Settings',
+  );
+  if (selection === 'Open Settings') {
+    await commands.executeCommand('workbench.action.openSettings', 'ollama');
+  }
+}
+
+/**
+ * Set up chat participant with icon and register it
+ */
+export function setupChatParticipant(
+  context: vscode.ExtensionContext,
+  participantHandler: vscode.ChatRequestHandler,
+  chatApi?: Pick<typeof vscode.chat, 'createChatParticipant'>,
+  uriApi?: any,
+): vscode.Disposable {
+  const chat = chatApi || vscode.chat;
+  const Uri = uriApi || vscode.Uri;
+
+  const participant = chat.createChatParticipant('ollama-copilot.ollama', participantHandler);
+  participant.iconPath = Uri.joinPath(context.extensionUri, 'logo.png');
+  return participant;
+}
+
+/**
  * Build and send a message to the language model
  */
 export async function handleChatRequest(
@@ -184,13 +240,7 @@ export async function activate(context: vscode.ExtensionContext) {
       const isConnected = await testConnection(client);
       diagnostics.info(`[Ollama] Connection test result: ${isConnected ? 'connected' : 'not connected'}`);
       if (!isConnected) {
-        const selection = await vscode.window.showErrorMessage(
-          `Cannot connect to Ollama server at ${host}. Please check your ollama.host setting and authentication token.`,
-          'Open Settings',
-        );
-        if (selection === 'Open Settings') {
-          await vscode.commands.executeCommand('workbench.action.openSettings', 'ollama');
-        }
+        await handleConnectionTestFailure(host);
       }
     } catch (error) {
       diagnostics.exception('[Ollama] Connection test failed', error);
@@ -205,22 +255,22 @@ export async function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration(event => {
-        if (event.affectsConfiguration('ollama.diagnostics.logLevel')) {
-          diagnostics.info(`[Ollama] Diagnostics log level changed to: ${getConfiguredLogLevel()}`);
-        }
-
-        if (!event.affectsConfiguration('ollama.autoStartLogStreaming')) {
-          return;
-        }
-
-        const enabled = vscode.workspace.getConfiguration('ollama').get<boolean>('autoStartLogStreaming') ?? true;
-        diagnostics.info(`[Ollama] Auto-start log streaming setting changed: ${enabled ? 'enabled' : 'disabled'}`);
-        if (enabled) {
-          startLogStreaming(diagnostics);
-        } else {
-          stopLogStreaming();
-          diagnostics.info('[Ollama] Log streaming disabled via settings');
-        }
+        handleConfigurationChange(
+          event,
+          diagnostics,
+          () => {
+            // Log level change handler
+          },
+          enabled => {
+            // Auto-start log streaming change handler
+            if (enabled) {
+              startLogStreaming(diagnostics);
+            } else {
+              stopLogStreaming();
+              diagnostics.info('[Ollama] Log streaming disabled via settings');
+            }
+          },
+        );
       }),
     );
 
@@ -236,8 +286,7 @@ export async function activate(context: vscode.ExtensionContext) {
     await handleChatRequest(request, chatContext, stream, token);
   };
 
-  const participant = vscode.chat.createChatParticipant('ollama-copilot.ollama', participantHandler);
-  participant.iconPath = (vscode.Uri as any).joinPath(context.extensionUri, 'logo.png');
+  const participant = setupChatParticipant(context, participantHandler);
   context.subscriptions.push(participant);
 }
 

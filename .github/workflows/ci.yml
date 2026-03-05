@@ -85,7 +85,7 @@ jobs:
         run: task compile
 
       - name: Run tests
-        run: xvfb-run -a task unit-test-coverage --reporter=default --reporter=junit --outputFile=test-report.junit.xml
+        run: xvfb-run -a task unit-test-coverage -- --reporter=default --reporter=junit --outputFile=test-report.junit.xml
         env:
           CI: true
 
