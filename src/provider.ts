@@ -232,10 +232,10 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
           });
         } else if (part instanceof LanguageModelToolResultPart) {
           // Tool results become separate messages
+          // Note: Ollama's Message type doesn't have tool_call_id field, so we only send role and content
           ollamaMessages.push({
             role: 'tool',
             content: JSON.stringify(part.content),
-            tool_call_id: this.getOllamaToolCallId(part.callId),
           });
         }
       }
