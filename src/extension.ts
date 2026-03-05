@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { getOllamaClient } from './client.js';
+import { getOllamaClient, testConnection } from './client.js';
 import { OllamaChatModelProvider } from './provider.js';
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -16,6 +16,17 @@ export async function activate(context: vscode.ExtensionContext) {
       await provider.setAuthToken();
     }),
   );
+
+  // Test connection to Ollama server on startup
+  const isConnected = await testConnection(client);
+  if (!isConnected) {
+    const config = vscode.workspace.getConfiguration('ollama');
+    const host = config.get<string>('host') || 'http://localhost:11434';
+    await vscode.window.showErrorMessage(
+      `Cannot connect to Ollama server at ${host}. Please check your ollama.host setting and authentication token.`,
+      'Open Settings',
+    );
+  }
 
   if (logOutputChannel) {
     context.subscriptions.push(logOutputChannel);
