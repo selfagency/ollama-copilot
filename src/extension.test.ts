@@ -892,21 +892,14 @@ describe('setupChatParticipant', () => {
       dispose: vi.fn(),
     };
     const createChatParticipant = vi.fn(() => mockParticipant);
-    const joinPath = vi.fn((_base: any, path: string) => ({ fsPath: path }));
 
     const ext = await import('./extension.js');
     const mockHandler = vi.fn() as any;
     const mockContext = { extensionUri: '/test' };
 
-    const result = ext.setupChatParticipant(
-      mockContext as any,
-      mockHandler,
-      { createChatParticipant } as any,
-      { joinPath } as any,
-    );
+    const result = ext.setupChatParticipant(mockContext as any, mockHandler, { createChatParticipant } as any);
 
     expect(createChatParticipant).toHaveBeenCalledWith('ollama-copilot.ollama', mockHandler);
-    expect(joinPath).toHaveBeenCalledWith('/test', 'logo.png');
     expect(mockParticipant.iconPath).toBeDefined();
     expect(result).toBe(mockParticipant);
   });
