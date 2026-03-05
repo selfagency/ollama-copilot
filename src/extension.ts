@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { getOllamaClient, testConnection } from './client.js';
 import { OllamaChatModelProvider } from './provider.js';
+import { registerSidebar } from './sidebar.js';
 
 export async function activate(context: vscode.ExtensionContext) {
   const logOutputChannel =
@@ -16,6 +17,9 @@ export async function activate(context: vscode.ExtensionContext) {
       await provider.setAuthToken();
     }),
   );
+
+  // Register sidebar view
+  registerSidebar(context, client);
 
   // Test connection to Ollama server on startup (non-blocking)
   void (async () => {

@@ -1,0 +1,59 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+tasks:
+  check-types:
+    desc: Check types
+    cmds:
+      - pnpm run check-types
+    silent: false
+
+  lint:
+    desc: Run linter
+    cmds:
+      - pnpm run lint
+    silent: false
+
+  check-formatting:
+    desc: Check formatting
+    cmds:
+      - pnpm run format --check
+    silent: false
+
+  unit-tests:
+    desc: Run unit tests
+    cmds:
+      - pnpm run test
+    silent: false
+
+  extension-tests:
+    desc: Run extension tests
+    cmds:
+      - pnpm run test:extension
+    silent: false
+
+  build:
+    desc: Build the extension
+    cmds:
+      - pnpm run compile
+    silent: false
+
+  release:
+    desc: Release the extension
+    cmds:
+      - task: build
+      - pnpm run release {{.CLI_ARGS}}
+    silent: false
+
+  test-build-release:
+    desc: Test, Build & Release
+    cmds:
+      - task: check-types
+      - task: lint
+      - task: check-formatting
+      - task: unit-tests
+      - task: extension-tests
+      - task: build
+      - pnpm run release {{.CLI_ARGS}}
+    silent: false

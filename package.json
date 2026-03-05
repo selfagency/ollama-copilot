@@ -36,19 +36,17 @@
   "main": "./dist/extension.js",
   "scripts": {
     "check-types": "tsc --noEmit",
-    "compile": "pnpm run check-types && pnpm run lint && tsup",
-    "deploy": "vsce publish --no-dependencies",
+    "compile": "NODE_ENV=production tsup",
     "format": "oxfmt 'src/**/*.ts' --write",
     "lint:fix": "oxlint 'src/**/*.ts' --fix",
     "lint": "oxlint 'src/**/*.ts'",
-    "package": "pnpm run check-types && pnpm run lint && NODE_ENV=production tsup",
     "prepare": "husky",
     "release": "zx ./scripts/release.mjs",
     "release:pre": "zx ./scripts/release.mjs --pre-release",
     "test": "vitest run src",
     "test:extension": "vscode-test test/integration",
     "test:coverage": "vitest run --coverage",
-    "vscode:prepublish": "pnpm run package",
+    "vscode:prepublish": "pnpm run compile",
     "watch:build": "tsup --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
     "watch": "run-p watch:*"
@@ -60,12 +58,70 @@
     ]
   },
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ollama-explorer",
+          "title": "Ollama",
+          "icon": "$(package)"
+        }
+      ]
+    },
+    "views": {
+      "ollama-explorer": [
+        {
+          "id": "ollama-sidebar",
+          "name": "Models"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "ollama-copilot.manageAuthToken",
         "title": "Ollama: Manage Auth Token"
+      },
+      {
+        "command": "ollama-copilot.refreshSidebar",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "ollama-copilot.deleteModel",
+        "title": "Delete Model",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "ollama-copilot.pullModel",
+        "title": "Pull Model",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "ollama-copilot.stopModel",
+        "title": "Stop Model",
+        "icon": "$(stop)"
       }
     ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "ollama-copilot.refreshSidebar",
+          "when": "view == ollama-sidebar",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "ollama-copilot.deleteModel",
+          "when": "view == ollama-sidebar && viewItem == model",
+          "group": "inline"
+        },
+        {
+          "command": "ollama-copilot.stopModel",
+          "when": "view == ollama-sidebar && viewItem == running",
+          "group": "inline"
+        }
+      ]
+    },
     "configuration": {
       "title": "Ollama",
       "properties": {
