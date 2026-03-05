@@ -1,0 +1,6 @@
+library: false
+warnOnImplicitThis: false
+name: selfagency/beans-vscode-codeql-extra-queries-actions
+version: 1.0.0
+dependencies:
+  codeql/actions-all: ^0.4.27

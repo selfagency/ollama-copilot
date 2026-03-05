@@ -1,0 +1,287 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. 1.2.3)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect-tag:
+    name: Detect release tag and readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
+
+    outputs:
+      release_tag: ${{ steps.tag.outputs.release_tag }}
+      ready: ${{ steps.tag.outputs.ready }}
+
+    steps:
+      - name: Resolve tag from successful workflow runs
+        id: tag
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            let tagName;
+
+            if (context.eventName === 'workflow_dispatch') {
+              const versionInput = '${{ inputs.version }}'.trim();
+              if (!versionInput) {
+                core.setFailed('version input is required for workflow_dispatch.');
+                return;
+              }
+              tagName = versionInput.startsWith('v') ? versionInput : `v${versionInput}`;
+
+              // Resolve HEAD of main
+              const main = await github.rest.repos.getBranch({ owner, repo, branch: 'main' });
+              const mainSha = main.data.commit.sha;
+
+              // Create the tag via API
+              core.info(`Creating tag ${tagName} at ${mainSha}...`);
+              await github.rest.git.createRef({
+                owner,
+                repo,
+                ref: `refs/tags/${tagName}`,
+                sha: mainSha,
+              });
+              core.info(`Tag ${tagName} created.`);
+            } else {
+              tagName = context.ref.replace('refs/tags/', '');
+            }
+
+            if (!tagName || !tagName.startsWith('v')) {
+              core.info(`Ref '${context.ref}' is not a release tag; skipping.`);
+              core.setOutput('release_tag', '');
+              core.setOutput('ready', 'false');
+              return;
+            }
+
+            const refData = await github.rest.git.getRef({
+              owner,
+              repo,
+              ref: `tags/${tagName}`,
+            });
+
+            const refObj = refData.data.object;
+            const taggedSha =
+              refObj.type === 'tag'
+                ? (await github.rest.git.getTag({ owner, repo, tag_sha: refObj.sha })).data.object.sha
+                : refObj.sha;
+            const main = await github.rest.repos.getBranch({ owner, repo, branch: 'main' });
+            const mainSha = main.data.commit.sha;
+
+            if (taggedSha !== mainSha) {
+              core.setFailed(
+                `Release blocked: tag ${tagName} points to ${taggedSha}, but latest main is ${mainSha}.`
+              );
+              return;
+            }
+
+            // Tests are verified by the local release script before tagging.
+            // We only need to confirm the tag points to the current main HEAD.
+            core.info(`Release tag detected: ${tagName} on latest main commit ${mainSha}; tag verified.`);
+            core.setOutput('release_tag', tagName);
+            core.setOutput('ready', 'true');
+
+  release:
+    name: Build and Release
+    needs: detect-tag
+    if: needs.detect-tag.outputs.release_tag != '' && needs.detect-tag.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      deployments: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.detect-tag.outputs.release_tag }}
+          fetch-depth: 0
+
+      - name: Generate release notes for changelog
+        id: changelog_notes
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const currentTag = '${{ needs.detect-tag.outputs.release_tag }}';
+
+            const tagsResp = await github.rest.repos.listTags({
+              owner,
+              repo,
+              per_page: 100,
+            });
+            const tags = tagsResp.data;
+
+            const index = tags.findIndex(tag => tag.name === currentTag);
+            const previousTag =
+              index >= 0
+                ? (tags.slice(index + 1).find(tag => tag.name.startsWith('v'))?.name ?? '')
+                : '';
+
+            const notesResponse = await github.rest.repos.generateReleaseNotes({
+              owner,
+              repo,
+              tag_name: currentTag,
+              ...(previousTag ? { previous_tag_name: previousTag } : {}),
+              target_commitish: 'main',
+            });
+
+            core.info(
+              previousTag
+                ? `Generated changelog notes from ${previousTag} to ${currentTag}.`
+                : `Generated changelog notes for ${currentTag} (no previous tag found).`
+            );
+
+            core.setOutput('previous_tag', previousTag);
+            core.setOutput('notes', notesResponse.data.body ?? '');
+
+      - name: Write release notes to file
+        run: printf '%s' "$RELEASE_NOTES" > release-notes.md
+        env:
+          RELEASE_NOTES: ${{ steps.changelog_notes.outputs.notes }}
+
+      # NOTE: Version/changelog mutation and commit/tag operations were moved to
+      # local automation (`scripts/deploy.sh`) to comply with branch rules that
+      # require PR-based changes on main.
+      - name: Skip repo mutation in release workflow
+        run: echo "Version/changelog updates are performed locally before tagging."
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build extension package
+        run: pnpm run package
+
+      - name: Package extension
+        run: |
+          pnpm dlx @vscode/vsce package --no-dependencies --out mistral-models-vscode.vsix
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.detect-tag.outputs.release_tag }}
+          body_path: release-notes.md
+          files: "mistral-models-vscode.vsix"
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create VS Code Marketplace deployment
+        id: deploy_vsce
+        if: "!contains(needs.detect-tag.outputs.release_tag, '-')"
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const deployment = await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: '${{ needs.detect-tag.outputs.release_tag }}',
+              environment: 'vscode-marketplace',
+              description: 'Publish to VS Code Marketplace',
+              auto_merge: false,
+              required_contexts: [],
+              production_environment: true,
+            });
+            core.setOutput('deployment_id', deployment.data.id);
+
+      - name: Publish to VS Code Marketplace
+        id: publish_vsce
+        if: "!contains(needs.detect-tag.outputs.release_tag, '-')"
+        run: pnpm dlx @vscode/vsce publish --packagePath mistral-models-vscode.vsix -p ${{ secrets.VSCE_PAT }}
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - name: Update VS Code Marketplace deployment status
+        if: "always() && !contains(needs.detect-tag.outputs.release_tag, '-') && steps.deploy_vsce.outputs.deployment_id != ''"
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const outcome = '${{ steps.publish_vsce.outcome }}';
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: ${{ steps.deploy_vsce.outputs.deployment_id }},
+              state: outcome === 'success' ? 'success' : 'failure',
+              description: `VS Code Marketplace publish ${outcome}`,
+              environment_url: 'https://marketplace.visualstudio.com/items?itemName=selfagency.mistral-models-vscode',
+              auto_inactive: false,
+            });
+
+      - name: Create Open VSX deployment
+        id: deploy_ovsx
+        if: "!contains(needs.detect-tag.outputs.release_tag, '-')"
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const deployment = await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: '${{ needs.detect-tag.outputs.release_tag }}',
+              environment: 'open-vsx',
+              description: 'Publish to Open VSX Registry',
+              auto_merge: false,
+              required_contexts: [],
+              production_environment: true,
+            });
+            core.setOutput('deployment_id', deployment.data.id);
+
+      - name: Publish to Open VSX
+        id: publish_ovsx
+        if: "!contains(needs.detect-tag.outputs.release_tag, '-')"
+        run: pnpm dlx ovsx publish mistral-models-vscode.vsix -p ${{ secrets.OVSX_PAT }}
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+
+      - name: Update Open VSX deployment status
+        if: "always() && !contains(needs.detect-tag.outputs.release_tag, '-') && steps.deploy_ovsx.outputs.deployment_id != ''"
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const outcome = '${{ steps.publish_ovsx.outcome }}';
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: ${{ steps.deploy_ovsx.outputs.deployment_id }},
+              state: outcome === 'success' ? 'success' : 'failure',
+              description: `Open VSX publish ${outcome}`,
+              environment_url: 'https://open-vsx.org/extension/selfagency/mistral-models-vscode',
+              auto_inactive: false,
+            });

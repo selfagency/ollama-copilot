@@ -1,0 +1,17 @@
+{
+	"include": [
+		"src/**/*.ts"
+	],
+	"compilerOptions": {
+		"module": "Node16",
+		"target": "ES2024",
+		"lib": [
+			"ES2024"
+		],
+		"sourceMap": true,
+		"rootDir": "src",
+		"strict": true,
+		"outDir": "out",
+		"skipLibCheck": true
+	}
+}
