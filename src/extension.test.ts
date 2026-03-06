@@ -887,6 +887,201 @@ describe('handleChatRequest', () => {
   });
 });
 
+describe('handleChatRequest direct Ollama path (thinking + tools)', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it('streams thinking tokens with a reasoning header and separator', async () => {
+    vi.doMock('./client.js', () => ({ getOllamaClient: vi.fn(), testConnection: vi.fn() }));
+    vi.doMock('./diagnostics.js', () => ({
+      createDiagnosticsLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), exception: vi.fn() }),
+      getConfiguredLogLevel: vi.fn(() => 'info'),
+    }));
+    vi.doMock('./provider.js', () => ({
+      OllamaChatModelProvider: class { setAuthToken = vi.fn(); },
+      isThinkingModelId: (id: string) => /(qwen3|qwq|deepseek-?r1|cogito|phi\d+-reasoning)/i.test(id),
+    }));
+    vi.doMock('./sidebar.js', () => ({ registerSidebar: vi.fn() }));
+    vi.doMock('./modelfiles.js', () => ({ registerModelfileManager: vi.fn() }));
+    vi.doMock('vscode', () => ({
+      LanguageModelTextPart: class { constructor(public value: string) {} },
+      LanguageModelChatMessageRole: { User: 1, Assistant: 2 },
+      ChatRequestTurn: class {},
+      ChatResponseTurn: class {},
+      ChatResponseMarkdownPart: class {},
+      LanguageModelChatMessage: {
+        User: (content: string) => ({ role: 1, content }),
+        Assistant: (content: string) => ({ role: 2, content }),
+      },
+      lm: { selectChatModels: vi.fn().mockResolvedValue([]) },
+      workspace: { getConfiguration: vi.fn().mockReturnValue({ get: vi.fn() }) },
+    }));
+
+    const ext = await import('./extension.js');
+
+    const mockMarkdown = vi.fn();
+    const stream = { markdown: mockMarkdown };
+    const token = { isCancellationRequested: false };
+
+    const mockClient = {
+      chat: vi.fn().mockResolvedValue(
+        (async function* () {
+          yield { message: { thinking: 'step 1: consider options' } };
+          yield { message: { thinking: ' step 2: decide' } };
+          yield { message: { content: 'The answer is 42.' } };
+          yield { message: {}, done: true };
+        })(),
+      ),
+    };
+
+    const request = {
+      prompt: 'what is the meaning of life?',
+      model: { vendor: 'selfagency-ollama', id: 'qwen3:8b' },
+    };
+
+    await ext.handleChatRequest(
+      request as any,
+      { history: [] } as any,
+      stream as any,
+      token as any,
+      mockClient as any,
+    );
+
+    const allCalls = mockMarkdown.mock.calls.map((c: any[]) => c[0] as string);
+    // Thinking header should appear
+    expect(allCalls.some((v: string) => v.includes('Reasoning') || v.includes('reasoning'))).toBe(true);
+    // Thinking content should be streamed
+    expect(allCalls.some((v: string) => v.includes('step 1: consider options'))).toBe(true);
+    // Separator before answer
+    expect(allCalls.some((v: string) => v.includes('---'))).toBe(true);
+    // Final answer
+    expect(allCalls.some((v: string) => v.includes('The answer is 42.'))).toBe(true);
+  });
+
+  it('passes think: true for known thinking model IDs', async () => {
+    vi.doMock('./client.js', () => ({ getOllamaClient: vi.fn(), testConnection: vi.fn() }));
+    vi.doMock('./diagnostics.js', () => ({
+      createDiagnosticsLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), exception: vi.fn() }),
+      getConfiguredLogLevel: vi.fn(() => 'info'),
+    }));
+    vi.doMock('./provider.js', () => ({
+      OllamaChatModelProvider: class { setAuthToken = vi.fn(); },
+      isThinkingModelId: (id: string) => /(qwen3|qwq|deepseek-?r1|cogito|phi\d+-reasoning)/i.test(id),
+    }));
+    vi.doMock('./sidebar.js', () => ({ registerSidebar: vi.fn() }));
+    vi.doMock('./modelfiles.js', () => ({ registerModelfileManager: vi.fn() }));
+    vi.doMock('vscode', () => ({
+      LanguageModelTextPart: class { constructor(public value: string) {} },
+      LanguageModelChatMessageRole: { User: 1, Assistant: 2 },
+      ChatRequestTurn: class {},
+      ChatResponseTurn: class {},
+      ChatResponseMarkdownPart: class {},
+      LanguageModelChatMessage: {
+        User: (content: string) => ({ role: 1, content }),
+        Assistant: (content: string) => ({ role: 2, content }),
+      },
+      lm: { selectChatModels: vi.fn().mockResolvedValue([]) },
+      workspace: { getConfiguration: vi.fn().mockReturnValue({ get: vi.fn() }) },
+      Uri: { joinPath: vi.fn((_base: any, p: string) => ({ fsPath: p })) },
+      chat: { createChatParticipant: vi.fn(() => ({ iconPath: undefined, dispose: vi.fn() })) },
+      commands: { registerCommand: vi.fn(() => ({ dispose: vi.fn() })), executeCommand: vi.fn() },
+    }));
+
+    const ext = await import('./extension.js');
+
+    const mockChat = vi.fn().mockResolvedValue(
+      (async function* () {
+        yield { message: { content: 'ok' }, done: true };
+      })(),
+    );
+
+    const mockClient = { chat: mockChat };
+    const stream = { markdown: vi.fn() };
+    const token = { isCancellationRequested: false };
+
+    const request = {
+      prompt: 'hi',
+      model: { vendor: 'selfagency-ollama', id: 'qwen3:8b' },
+    };
+
+    await ext.handleChatRequest(
+      request as any,
+      { history: [] } as any,
+      stream as any,
+      token as any,
+      mockClient as any,
+    );
+
+    expect(mockChat).toHaveBeenCalledWith(expect.objectContaining({ think: true }));
+  });
+
+  it('formats tool calls as markdown in participant path', async () => {
+    vi.doMock('./client.js', () => ({ getOllamaClient: vi.fn(), testConnection: vi.fn() }));
+    vi.doMock('./diagnostics.js', () => ({
+      createDiagnosticsLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), exception: vi.fn() }),
+      getConfiguredLogLevel: vi.fn(() => 'info'),
+    }));
+    vi.doMock('./provider.js', () => ({
+      OllamaChatModelProvider: class { setAuthToken = vi.fn(); },
+      isThinkingModelId: (id: string) => /(qwen3|qwq|deepseek-?r1|cogito|phi\d+-reasoning)/i.test(id),
+    }));
+    vi.doMock('./sidebar.js', () => ({ registerSidebar: vi.fn() }));
+    vi.doMock('./modelfiles.js', () => ({ registerModelfileManager: vi.fn() }));
+    vi.doMock('vscode', () => ({
+      LanguageModelTextPart: class { constructor(public value: string) {} },
+      LanguageModelChatMessageRole: { User: 1, Assistant: 2 },
+      ChatRequestTurn: class {},
+      ChatResponseTurn: class {},
+      ChatResponseMarkdownPart: class {},
+      LanguageModelChatMessage: {
+        User: (content: string) => ({ role: 1, content }),
+        Assistant: (content: string) => ({ role: 2, content }),
+      },
+      lm: { selectChatModels: vi.fn().mockResolvedValue([]) },
+      workspace: { getConfiguration: vi.fn().mockReturnValue({ get: vi.fn() }) },
+      Uri: { joinPath: vi.fn((_base: any, p: string) => ({ fsPath: p })) },
+      chat: { createChatParticipant: vi.fn(() => ({ iconPath: undefined, dispose: vi.fn() })) },
+      commands: { registerCommand: vi.fn(() => ({ dispose: vi.fn() })), executeCommand: vi.fn() },
+    }));
+
+    const ext = await import('./extension.js');
+
+    const mockMarkdown = vi.fn();
+    const stream = { markdown: mockMarkdown };
+    const token = { isCancellationRequested: false };
+
+    const mockClient = {
+      chat: vi.fn().mockResolvedValue(
+        (async function* () {
+          yield {
+            message: {
+              tool_calls: [{ function: { name: 'get_weather', arguments: { location: 'NYC' } } }],
+            },
+          };
+          yield { message: { content: 'It is sunny in NYC.' }, done: true };
+        })(),
+      ),
+    };
+
+    const request = {
+      prompt: "what's the weather?",
+      model: { vendor: 'selfagency-ollama', id: 'llama3.2:latest' },
+    };
+
+    await ext.handleChatRequest(
+      request as any,
+      { history: [] } as any,
+      stream as any,
+      token as any,
+      mockClient as any,
+    );
+
+    const allCalls = mockMarkdown.mock.calls.map((c: any[]) => c[0] as string);
+    expect(allCalls.some((v: string) => v.includes('get_weather'))).toBe(true);
+  });
+});
+
 describe('handleConnectionTestFailure', () => {
   it('shows error message and executes command when Open Settings selected', async () => {
     const showErrorMessage = vi.fn().mockResolvedValue('Open Settings');

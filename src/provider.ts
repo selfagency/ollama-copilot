@@ -35,6 +35,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
   private modelsChangeEventEmitter: EventEmitter<void> = new EventEmitter();
   private toolCallIdMap: Map<string, string> = new Map();
   private reverseToolCallIdMap: Map<string, string> = new Map();
+  private thinkingModels = new Set<string>();
 
   readonly onDidChangeLanguageModelChatInformation = this.modelsChangeEventEmitter.event;
 
@@ -128,6 +129,15 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
   }
 
   /**
+   * Flush the model cache and notify VS Code to re-query the model list.
+   * Useful for a manual "refresh" command.
+   */
+  refreshModels(): void {
+    this.clearModelCache();
+    this.modelsChangeEventEmitter.fire();
+  }
+
+  /**
    * Build lightweight model information when detailed metadata is unavailable.
    */
   private getBaseChatModelInfo(modelId: string): LanguageModelChatInformation {
@@ -210,6 +220,10 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
         }
       }
 
+      if (this.isThinkingModel(response)) {
+        this.thinkingModels.add(modelId);
+      }
+
       return {
         id: modelId,
         name: formatModelName(modelId),
@@ -245,6 +259,18 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
   }
 
   /**
+   * Check if model supports extended thinking / reasoning
+   */
+  private isThinkingModel(modelResponse: unknown): boolean {
+    const response = modelResponse as Record<string, unknown>;
+    const capabilities = response.capabilities;
+    return (
+      Array.isArray(capabilities) &&
+      capabilities.some(cap => String(cap).toLowerCase().includes('thinking'))
+    );
+  }
+
+  /**
    * Check if model supports vision/image inputs
    */
   private isVisionModel(modelResponse: unknown): boolean {
@@ -273,40 +299,65 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
     progress: Progress<LanguageModelResponsePart>,
     token: CancellationToken,
   ): Promise<void> {
+    this.clearToolCallIdMappings();
+
+    // Convert VS Code messages to Ollama format
+    const ollamaMessages = this.toOllamaMessages(messages);
+
+    // Build tools array if supported
+    let tools: Parameters<typeof this.client.chat>[0]['tools'] | undefined;
+    if (options.tools && options.tools.length > 0 && model.capabilities.toolCalling) {
+      tools = options.tools.map(tool => ({
+        type: 'function' as const,
+        function: {
+          name: tool.name,
+          description: tool.description || '',
+          parameters: tool.inputSchema as Record<string, unknown>,
+        },
+      }));
+    }
+
+    // Create a per-request client to isolate this stream's connection from others.
+    // Do NOT call abort() on cancellation — abruptly closing the HTTP connection
+    // mid-generation destabilises Ollama. The isCancellationRequested check in the
+    // loop below provides safe cooperative cancellation instead.
+    const perRequestClient = await getOllamaClient(this.context);
+
+    const shouldThink = this.thinkingModels.has(model.id) || isThinkingModelId(model.id);
+
     try {
-      this.clearToolCallIdMappings();
-
-      // Convert VS Code messages to Ollama format
-      const ollamaMessages = this.toOllamaMessages(messages);
-
-      // Build tools array if supported
-      let tools: Parameters<typeof this.client.chat>[0]['tools'] | undefined;
-      if (options.tools && options.tools.length > 0 && model.capabilities.toolCalling) {
-        tools = options.tools.map(tool => ({
-          type: 'function' as const,
-          function: {
-            name: tool.name,
-            description: tool.description || '',
-            parameters: tool.inputSchema as Record<string, unknown>,
-          },
-        }));
-      }
-
-      // Stream chat response
-      const response = await this.client.chat({
+      const response = await perRequestClient.chat({
         model: model.id,
         messages: ollamaMessages,
         stream: true,
         tools,
+        ...(shouldThink ? { think: true } : {}),
       });
+
+      let thinkingStarted = false;
+      let contentStarted = false;
 
       for await (const chunk of response) {
         if (token.isCancellationRequested) {
           break;
         }
 
+        // Handle thinking tokens (reasoning phase)
+        if (chunk.message?.thinking) {
+          if (!thinkingStarted) {
+            progress.report(new LanguageModelTextPart('\n\n💭 **Reasoning**\n\n'));
+            thinkingStarted = true;
+          }
+          progress.report(new LanguageModelTextPart(chunk.message.thinking));
+        }
+
         // Stream text chunks immediately as they arrive
         if (chunk.message?.content) {
+          if (thinkingStarted && !contentStarted) {
+            progress.report(new LanguageModelTextPart('\n\n---\n\n'));
+            contentStarted = true;
+          }
+          this.outputChannel.debug?.(`[Ollama] Streaming chunk: ${chunk.message.content.substring(0, 50)}`);
           progress.report(new LanguageModelTextPart(chunk.message.content));
         }
 
@@ -334,8 +385,13 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
       }
     } catch (error) {
       this.outputChannel.exception('[Ollama] Chat response failed', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      progress.report(new LanguageModelTextPart(`Error: ${errorMessage}`));
+      const isConnectionError = error instanceof TypeError && error.message.includes('fetch failed');
+      const message = isConnectionError
+        ? 'Cannot reach Ollama server — check that it is running and accessible.'
+        : error instanceof Error
+          ? error.message
+          : String(error);
+      progress.report(new LanguageModelTextPart(`Error: ${message}`));
     }
   }
 
@@ -509,6 +565,16 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
       }
     }
   }
+}
+
+/**
+ * Regex pattern for models that support extended thinking / reasoning.
+ * Used as a fallback when the /api/show capabilities array is not yet cached.
+ */
+const THINKING_MODEL_PATTERN = /qwen3|qwq|deepseek-?r1|cogito|phi\d+-reasoning/i;
+
+export function isThinkingModelId(modelId: string): boolean {
+  return THINKING_MODEL_PATTERN.test(modelId);
 }
 
 /**

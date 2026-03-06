@@ -2,10 +2,11 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { promises as fsPromises } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import type { Ollama } from 'ollama';
 import * as vscode from 'vscode';
 import { getOllamaClient, testConnection } from './client.js';
 import { createDiagnosticsLogger, getConfiguredLogLevel, type DiagnosticsLogger } from './diagnostics.js';
-import { OllamaChatModelProvider } from './provider.js';
+import { isThinkingModelId, OllamaChatModelProvider } from './provider.js';
 import { registerSidebar } from './sidebar.js';
 import { registerModelfileManager } from './modelfiles.js';
 
@@ -214,13 +215,43 @@ export async function handleBuiltInOllamaConflict(
 }
 
 /**
- * Build and send a message to the language model
+ * Configure Copilot's built-in Ollama BYOK integration to use our endpoint.
+ * This routes direct model-picker requests through Copilot's in-process BYOK handler,
+ * avoiding the IPC boundary that buffers streamed responses for external providers.
+ */
+export async function configureBYOKOllama(
+  host: string,
+  bearer?: string,
+  workspaceApi?: Pick<typeof vscode.workspace, 'getConfiguration'>,
+): Promise<void> {
+  const ws = workspaceApi ?? vscode.workspace;
+  try {
+    const config = ws.getConfiguration('github.copilot.chat') as vscode.WorkspaceConfiguration;
+    await config.update('ollama.url', host, vscode.ConfigurationTarget.Global);
+    if (bearer !== undefined) {
+      await config.update('ollama.bearer', bearer || null, vscode.ConfigurationTarget.Global);
+    }
+  } catch {
+    // The github.copilot.chat settings may not be registered in all VS Code environments
+    // (e.g. test hosts without Copilot). BYOK is an optional streaming enhancement.
+  }
+}
+
+/**
+ * Build and send a message to the language model.
+ *
+ * When `client` is provided the request is streamed directly from Ollama —
+ * completely bypassing the VS Code IPC boundary — giving the @ollama participant
+ * true per-token streaming. When `client` is omitted the function falls back to
+ * the VS Code LM API path (used in tests and as a backwards-compatibility shim).
  */
 export async function handleChatRequest(
   request: vscode.ChatRequest,
   chatContext: vscode.ChatContext,
   stream: vscode.ChatResponseStream,
   token: vscode.CancellationToken,
+  client?: Ollama,
+  outputChannel?: DiagnosticsLogger,
 ): Promise<void> {
   const messages: vscode.LanguageModelChatMessage[] = [];
 
@@ -240,6 +271,93 @@ export async function handleChatRequest(
 
   messages.push(vscode.LanguageModelChatMessage.User(request.prompt));
 
+  if (client) {
+    // Direct Ollama path: completely IPC-free, per-token streaming for the @ollama participant.
+    let modelId: string;
+    if (request.model.vendor === 'ollama' || request.model.vendor === LANGUAGE_MODEL_VENDOR) {
+      modelId = request.model.id;
+    } else {
+      // Prefer BYOK models (in-process), fall back to our custom provider.
+      const byokModels = await vscode.lm.selectChatModels({ vendor: 'ollama' });
+      if (byokModels.length) {
+        modelId = byokModels[0].id;
+      } else {
+        const ourModels = await vscode.lm.selectChatModels({ vendor: LANGUAGE_MODEL_VENDOR });
+        if (!ourModels.length) {
+          stream.markdown('No Ollama models available. Pull a model first using the Ollama sidebar.');
+          return;
+        }
+        modelId = ourModels[0].id;
+      }
+    }
+
+    try {
+      // Convert VS Code messages to the plain Ollama format expected by the client.
+      const ollamaMessages = messages.map(msg => ({
+        role: (msg.role === vscode.LanguageModelChatMessageRole.User ? 'user' : 'assistant') as
+          | 'user'
+          | 'assistant',
+        content: (Array.isArray(msg.content) ? msg.content : [])
+          .filter((p): p is vscode.LanguageModelTextPart => p instanceof vscode.LanguageModelTextPart)
+          .map(p => p.value)
+          .join(''),
+      }));
+
+      const shouldThink = isThinkingModelId(modelId);
+
+      const response = await client.chat({
+        model: modelId,
+        messages: ollamaMessages,
+        stream: true,
+        ...(shouldThink ? { think: true } : {}),
+      });
+
+      let thinkingStarted = false;
+      let contentStarted = false;
+
+      for await (const chunk of response) {
+        if (token.isCancellationRequested) {
+          break;
+        }
+
+        if (chunk.message?.thinking) {
+          if (!thinkingStarted) {
+            stream.markdown('\n\n💭 **Reasoning**\n\n');
+            thinkingStarted = true;
+          }
+          stream.markdown(chunk.message.thinking);
+        }
+
+        if (chunk.message?.content) {
+          if (thinkingStarted && !contentStarted) {
+            stream.markdown('\n\n---\n\n');
+            contentStarted = true;
+          }
+          outputChannel?.debug(`[Ollama] @ollama chunk: ${chunk.message.content.substring(0, 50)}`);
+          stream.markdown(chunk.message.content);
+        }
+
+        if (chunk.message?.tool_calls && Array.isArray(chunk.message.tool_calls)) {
+          for (const toolCall of chunk.message.tool_calls) {
+            const name = toolCall.function?.name ?? 'unknown';
+            const args = JSON.stringify(toolCall.function?.arguments ?? {}, null, 2);
+            stream.markdown(`\n\n**Tool call:** \`${name}\`\n\`\`\`json\n${args}\n\`\`\`\n\n`);
+          }
+        }
+
+        if (chunk.done) {
+          break;
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      outputChannel?.exception('[Ollama] Chat participant request failed', error);
+      stream.markdown(`Error: ${message}`);
+    }
+    return;
+  }
+
+  // VS Code LM API path — used when no client is injected (tests / backwards compat).
   let model: vscode.LanguageModelChat;
   if (request.model.vendor === LANGUAGE_MODEL_VENDOR) {
     model = request.model;
@@ -379,6 +497,10 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('ollama-copilot.manageAuthToken', async () => {
       await provider.setAuthToken();
     }),
+    vscode.commands.registerCommand('ollama-copilot.refreshModels', () => {
+      provider.refreshModels();
+      diagnostics.info('[Ollama] Model list refresh triggered');
+    }),
     {
       dispose: () => stopLogStreaming(),
     },
@@ -395,22 +517,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Register modelfile manager
   registerModelfileManager(context, client, diagnostics);
-
-  // Detect and offer to disable Copilot's built-in Ollama provider (non-blocking)
-  void handleBuiltInOllamaConflict(undefined, undefined, undefined, undefined, context);
-  const conflictCheckDelaysMs = [1_500, 5_000, 10_000];
-  const conflictCheckTimers = conflictCheckDelaysMs.map(delay =>
-    setTimeout(() => {
-      void handleBuiltInOllamaConflict(undefined, undefined, undefined, undefined, context);
-    }, delay),
-  );
-  context.subscriptions.push({
-    dispose: () => {
-      for (const timer of conflictCheckTimers) {
-        clearTimeout(timer);
-      }
-    },
-  });
 
   // Test connection to Ollama server on startup (non-blocking)
   void (async () => {
@@ -461,7 +567,8 @@ export async function activate(context: vscode.ExtensionContext) {
     stream: vscode.ChatResponseStream,
     token: vscode.CancellationToken,
   ): Promise<void> => {
-    await handleChatRequest(request, chatContext, stream, token);
+    // Pass the Ollama client so the handler streams directly — no VS Code IPC overhead.
+    await handleChatRequest(request, chatContext, stream, token, client, diagnostics);
   };
 
   const participant = setupChatParticipant(context, participantHandler);

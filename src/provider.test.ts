@@ -6,7 +6,8 @@ import {
   LanguageModelToolCallPart,
   LanguageModelToolResultPart,
 } from 'vscode';
-import { formatModelName, OllamaChatModelProvider } from './provider.js';
+import { getOllamaClient } from './client.js';
+import { formatModelName, isThinkingModelId, OllamaChatModelProvider } from './provider.js';
 
 vi.mock('./client.js', () => ({
   getContextLengthOverride: vi.fn(() => 0),
@@ -376,9 +377,11 @@ describe('OllamaChatModelProvider chat response', () => {
       yield { message: { content: 'chunk2' } };
     });
 
+    vi.mocked(getOllamaClient).mockResolvedValueOnce({ chat, abort: vi.fn() } as any);
+
     const provider = new OllamaChatModelProvider(
       { secrets: { get: vi.fn(), store: vi.fn(), delete: vi.fn() } } as any,
-      { chat, list: vi.fn(), show: vi.fn() } as any,
+      { list: vi.fn(), show: vi.fn() } as any,
       { info: vi.fn(), warn: vi.fn(), error: vi.fn(), exception: vi.fn() } as any,
     );
 
@@ -417,9 +420,11 @@ describe('OllamaChatModelProvider chat response', () => {
     const exception = vi.fn();
     const chat = vi.fn().mockRejectedValue(new Error('Chat failed'));
 
+    vi.mocked(getOllamaClient).mockResolvedValueOnce({ chat, abort: vi.fn() } as any);
+
     const provider = new OllamaChatModelProvider(
       { secrets: { get: vi.fn(), store: vi.fn(), delete: vi.fn() } } as any,
-      { chat, list: vi.fn(), show: vi.fn() } as any,
+      { list: vi.fn(), show: vi.fn() } as any,
       { info: vi.fn(), warn: vi.fn(), error: vi.fn(), exception } as any,
     );
 
@@ -459,9 +464,11 @@ describe('OllamaChatModelProvider chat response', () => {
       yield { message: { content: 'response' } };
     });
 
+    vi.mocked(getOllamaClient).mockResolvedValueOnce({ chat, abort: vi.fn() } as any);
+
     const provider = new OllamaChatModelProvider(
       { secrets: { get: vi.fn(), store: vi.fn(), delete: vi.fn() } } as any,
-      { chat, list: vi.fn(), show: vi.fn() } as any,
+      { list: vi.fn(), show: vi.fn() } as any,
       { info: vi.fn(), warn: vi.fn(), error: vi.fn(), exception: vi.fn() } as any,
     );
 
@@ -514,9 +521,11 @@ describe('OllamaChatModelProvider chat response', () => {
       };
     });
 
+    vi.mocked(getOllamaClient).mockResolvedValueOnce({ chat, abort: vi.fn() } as any);
+
     const provider = new OllamaChatModelProvider(
       { secrets: { get: vi.fn(), store: vi.fn(), delete: vi.fn() } } as any,
-      { chat, list: vi.fn(), show: vi.fn() } as any,
+      { list: vi.fn(), show: vi.fn() } as any,
       { info: vi.fn(), warn: vi.fn(), error: vi.fn(), exception: vi.fn() } as any,
     );
 
@@ -565,9 +574,11 @@ describe('OllamaChatModelProvider chat response', () => {
       })(),
     );
 
+    vi.mocked(getOllamaClient).mockResolvedValueOnce({ chat, abort: vi.fn() } as any);
+
     const provider = new OllamaChatModelProvider(
       { secrets: { get: vi.fn(), store: vi.fn(), delete: vi.fn() } } as any,
-      { chat, list: vi.fn(), show: vi.fn() } as any,
+      { list: vi.fn(), show: vi.fn() } as any,
       { info: vi.fn(), warn: vi.fn(), error: vi.fn(), exception: vi.fn() } as any,
     );
 
@@ -603,5 +614,187 @@ describe('OllamaChatModelProvider chat response', () => {
     expect(progress.report).toHaveBeenNthCalledWith(1, expect.objectContaining({ value: 'Hello' }));
     expect(progress.report).toHaveBeenNthCalledWith(2, expect.objectContaining({ value: ', ' }));
     expect(progress.report).toHaveBeenNthCalledWith(3, expect.objectContaining({ value: 'world!' }));
+  });
+
+  it('streams thinking chunks for thinking models', async () => {
+    const chat = vi.fn().mockResolvedValue(
+      (async function* () {
+        yield { message: { thinking: 'let me reason...' } };
+        yield { message: { thinking: ' more reasoning' } };
+        yield { message: { content: 'The answer is 42.' } };
+        yield { message: {}, done: true };
+      })()
+    );
+
+    vi.mocked(getOllamaClient).mockResolvedValueOnce({ chat, abort: vi.fn() } as any);
+
+    const provider = new OllamaChatModelProvider(
+      { secrets: { get: vi.fn(), store: vi.fn(), delete: vi.fn() } } as any,
+      { list: vi.fn(), show: vi.fn() } as any,
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn(), exception: vi.fn() } as any,
+    );
+
+    const progress = { report: vi.fn() };
+    const token = { isCancellationRequested: false };
+
+    const model = {
+      id: 'qwen3:8b',
+      name: 'Qwen3 8B',
+      family: 'ollama',
+      version: '1.0.0',
+      maxInputTokens: 100,
+      maxOutputTokens: 100,
+      capabilities: { imageInput: false, toolCalling: false },
+    };
+
+    const message = {
+      role: LanguageModelChatMessageRole.User,
+      name: undefined,
+      content: [new LanguageModelTextPart('what is the meaning of life?')],
+    };
+
+    await provider.provideLanguageModelChatResponse(
+      model,
+      [message as any],
+      { tools: [], toolMode: 'auto' } as any,
+      progress as any,
+      token as any,
+    );
+
+    // Should include a header for thinking section
+    const allValues = progress.report.mock.calls.map((c: any[]) => c[0]?.value ?? '');
+    expect(allValues.some((v: string) => v.includes('Reasoning') || v.includes('reasoning'))).toBe(true);
+    // Should include thinking content
+    expect(allValues.some((v: string) => v.includes('let me reason...'))).toBe(true);
+    // Should include separator before answer
+    expect(allValues.some((v: string) => v.includes('---'))).toBe(true);
+    // Should include answer
+    expect(allValues.some((v: string) => v.includes('The answer is 42.'))).toBe(true);
+  });
+
+  it('passes think: true for known thinking models', async () => {
+    const chat = vi.fn().mockResolvedValue(
+      (async function* () {
+        yield { message: { content: 'done' }, done: true };
+      })()
+    );
+
+    vi.mocked(getOllamaClient).mockResolvedValueOnce({ chat, abort: vi.fn() } as any);
+
+    const provider = new OllamaChatModelProvider(
+      { secrets: { get: vi.fn(), store: vi.fn(), delete: vi.fn() } } as any,
+      { list: vi.fn(), show: vi.fn() } as any,
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn(), exception: vi.fn() } as any,
+    );
+
+    const progress = { report: vi.fn() };
+    const token = { isCancellationRequested: false };
+
+    const model = {
+      id: 'qwen3:8b',
+      name: 'Qwen3 8B',
+      family: 'ollama',
+      version: '1.0.0',
+      maxInputTokens: 100,
+      maxOutputTokens: 100,
+      capabilities: { imageInput: false, toolCalling: false },
+    };
+
+    const message = {
+      role: LanguageModelChatMessageRole.User,
+      name: undefined,
+      content: [new LanguageModelTextPart('hi')],
+    };
+
+    await provider.provideLanguageModelChatResponse(
+      model,
+      [message as any],
+      { tools: [], toolMode: 'auto' } as any,
+      progress as any,
+      token as any,
+    );
+
+    expect(chat).toHaveBeenCalledWith(expect.objectContaining({ think: true }));
+  });
+
+  it('does not pass think for non-thinking models', async () => {
+    const chat = vi.fn().mockResolvedValue(
+      (async function* () {
+        yield { message: { content: 'done' }, done: true };
+      })()
+    );
+
+    vi.mocked(getOllamaClient).mockResolvedValueOnce({ chat, abort: vi.fn() } as any);
+
+    const provider = new OllamaChatModelProvider(
+      { secrets: { get: vi.fn(), store: vi.fn(), delete: vi.fn() } } as any,
+      { list: vi.fn(), show: vi.fn() } as any,
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn(), exception: vi.fn() } as any,
+    );
+
+    const progress = { report: vi.fn() };
+    const token = { isCancellationRequested: false };
+
+    const model = {
+      id: 'llama3.2:latest',
+      name: 'Llama 3.2',
+      family: 'ollama',
+      version: '1.0.0',
+      maxInputTokens: 100,
+      maxOutputTokens: 100,
+      capabilities: { imageInput: false, toolCalling: false },
+    };
+
+    const message = {
+      role: LanguageModelChatMessageRole.User,
+      name: undefined,
+      content: [new LanguageModelTextPart('hi')],
+    };
+
+    await provider.provideLanguageModelChatResponse(
+      model,
+      [message as any],
+      { tools: [], toolMode: 'auto' } as any,
+      progress as any,
+      token as any,
+    );
+
+    const chatArgs = chat.mock.calls[0]?.[0];
+    expect(chatArgs?.think).toBeFalsy();
+  });
+});
+
+describe('isThinkingModelId', () => {
+  it('returns true for qwen3 models', () => {
+    expect(isThinkingModelId('qwen3:8b')).toBe(true);
+    expect(isThinkingModelId('qwen3:14b')).toBe(true);
+    expect(isThinkingModelId('qwen3:latest')).toBe(true);
+  });
+
+  it('returns true for qwq models', () => {
+    expect(isThinkingModelId('qwq:32b')).toBe(true);
+    expect(isThinkingModelId('qwq')).toBe(true);
+  });
+
+  it('returns true for deepseek-r1 models', () => {
+    expect(isThinkingModelId('deepseek-r1:8b')).toBe(true);
+    expect(isThinkingModelId('deepseek-r1:70b')).toBe(true);
+    expect(isThinkingModelId('deepseekr1:latest')).toBe(true);
+  });
+
+  it('returns true for cogito models', () => {
+    expect(isThinkingModelId('cogito:8b')).toBe(true);
+    expect(isThinkingModelId('cogito-v1-preview-llama-3.1-8b')).toBe(true);
+  });
+
+  it('returns true for phi4-reasoning models', () => {
+    expect(isThinkingModelId('phi4-reasoning:latest')).toBe(true);
+  });
+
+  it('returns false for standard models', () => {
+    expect(isThinkingModelId('llama3.2:latest')).toBe(false);
+    expect(isThinkingModelId('mistral:7b')).toBe(false);
+    expect(isThinkingModelId('gemma3:latest')).toBe(false);
+    expect(isThinkingModelId('codellama:latest')).toBe(false);
   });
 });
