@@ -16,7 +16,7 @@ import {
   window,
   workspace,
 } from 'vscode';
-import { fetchModelCapabilities } from './client.js';
+import { fetchModelCapabilities, type ModelCapabilities } from './client.js';
 import type { DiagnosticsLogger } from './diagnostics.js';
 
 type LibrarySortMode = 'name' | 'recency';
@@ -254,6 +254,8 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
   readonly onDidChangeTreeData: Event<ModelTreeItem | null> = this.treeChangeEmitter.event;
 
   private refreshIntervals: NodeJS.Timeout[] = [];
+  private localModelCapabilitiesCache = new Map<string, ModelCapabilities>();
+  private localModelCapabilitiesInFlight = new Set<string>();
 
   constructor(
     private client: Ollama,
@@ -325,28 +327,42 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
               // Keep initial tooltip on error
             },
           );
-          // Fetch capability badges asynchronously
-          void fetchModelCapabilities(this.client, model.name).then(
-            caps => {
-              const badges: string[] = [];
-              if (caps.toolCalling) badges.push('tools');
-              if (caps.imageInput) badges.push('vision');
-              if (badges.length > 0) {
-                const badgeStr = badges.map(b => `[${b}]`).join(' ');
-                const existing = (item.description ?? '').toString();
-                // Strip any previously-added capability badges before re-appending
-                // so repeated refreshes don't duplicate them.
-                const knownBadgePattern = badges.map(b => `\\[${b}\\]`).join('|');
-                const stripRe = new RegExp(`\\s*(${knownBadgePattern})(\\s*(${knownBadgePattern}))*\\s*$`, 'i');
-                const cleaned = existing.replace(stripRe, '').trim();
-                item.description = cleaned ? `${cleaned} ${badgeStr}` : badgeStr;
+
+          const appendBadges = (caps: ModelCapabilities) => {
+            const badges: string[] = [];
+            if (caps.toolCalling) badges.push('tools');
+            if (caps.imageInput) badges.push('vision');
+            if (badges.length === 0) {
+              return;
+            }
+
+            const badgeStr = badges.map(b => `[${b}]`).join(' ');
+            const existing = (item.description ?? '').toString();
+            const knownBadgePattern = badges.map(b => `\\[${b}\\]`).join('|');
+            const stripRe = new RegExp(`\\s*(${knownBadgePattern})(\\s*(${knownBadgePattern}))*\\s*$`, 'i');
+            const cleaned = existing.replace(stripRe, '').trim();
+            item.description = cleaned ? `${cleaned} ${badgeStr}` : badgeStr;
+          };
+
+          const cachedCaps = this.localModelCapabilitiesCache.get(model.name);
+          if (cachedCaps) {
+            appendBadges(cachedCaps);
+          } else if (!this.localModelCapabilitiesInFlight.has(model.name)) {
+            this.localModelCapabilitiesInFlight.add(model.name);
+            // Fetch capabilities once per local model name.
+            void fetchModelCapabilities(this.client, model.name)
+              .then(caps => {
+                this.localModelCapabilitiesCache.set(model.name, caps);
+                appendBadges(caps);
                 this.treeChangeEmitter.fire(item);
-              }
-            },
-            () => {
-              // Silently skip badges on error
-            },
-          );
+              })
+              .catch(() => {
+                // Silently skip badges on error
+              })
+              .finally(() => {
+                this.localModelCapabilitiesInFlight.delete(model.name);
+              });
+          }
 
           return item;
         })
