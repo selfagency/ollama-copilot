@@ -124,5 +124,22 @@ describe('package contributes integrity', () => {
     expect(prop).toBeDefined();
     expect(prop?.type).toBe('boolean');
     expect(prop?.default).toBe(true);
+  it('does not declare the ollama-model-preview webview view', () => {
+    const pkg = loadPackageJson();
+    const explorerViews = pkg.contributes?.views?.['ollama-explorer'] ?? [];
+    const ids = explorerViews.map(view => view.id);
+    expect(ids).not.toContain('ollama-model-preview');
+  });
+
+  it('does not declare the previewLibraryModel command', () => {
+    const pkg = loadPackageJson();
+    const commands = (pkg.contributes?.commands ?? []).map(c => c.command);
+    expect(commands).not.toContain('ollama-copilot.previewLibraryModel');
+  });
+
+  it('does not include previewLibraryModel in context menus', () => {
+    const pkg = loadPackageJson();
+    const contextCommands = (pkg.contributes?.menus?.['view/item/context'] ?? []).map(m => m.command);
+    expect(contextCommands).not.toContain('ollama-copilot.previewLibraryModel');
   });
 });
