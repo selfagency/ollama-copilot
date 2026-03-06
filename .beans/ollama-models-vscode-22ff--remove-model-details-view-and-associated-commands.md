@@ -1,9 +1,25 @@
 ---
 # ollama-models-vscode-22ff
 title: Remove model details view and associated commands
-status: todo
+status: in-progress
 type: fix
 priority: medium
 created_at: 2026-03-05T22:02:46Z
-updated_at: 2026-03-05T22:02:46Z
+updated_at: 2026-03-06T06:12:42Z
+branch: fix/22ff-remove-model-details-view
 ---
+
+## Todo
+
+- [x] Write failing tests confirming removal
+- [x] Remove `ollama-model-preview` view from `package.json`
+- [x] Remove `previewLibraryModel` command from `package.json`
+- [x] Remove `previewLibraryModel` menu entry from `package.json`
+- [x] Remove `ModelPreviewViewProvider` class from `sidebar.ts`
+- [x] Remove `handleShowModelDetails` function from `sidebar.ts`
+- [x] Remove `WebviewView`/`WebviewViewProvider` imports from `sidebar.ts`
+- [x] Remove `previewProvider` instantiation and registrations from `registerSidebar()`
+- [x] Remove `handleShowModelDetails` tests from `sidebar.test.ts`
+- [x] Run full test suite green
+- [ ] Commit and push
+
