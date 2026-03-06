@@ -19,7 +19,7 @@ import {
 import { getContextLengthOverride, getOllamaClient } from './client';
 import type { DiagnosticsLogger } from './diagnostics.js';
 
-const MODEL_LIST_REFRESH_MIN_INTERVAL_MS = 30_000;
+const MODEL_LIST_REFRESH_MIN_INTERVAL_MS = 5_000;
 const MODEL_INFO_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const MODEL_SHOW_TIMEOUT_MS = 2_000;
 
@@ -50,19 +50,11 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
    * Provide information about available chat models
    */
   async provideLanguageModelChatInformation(
-    options: { silent: boolean },
+    _options: { silent: boolean },
     _token: CancellationToken,
   ): Promise<LanguageModelChatInformation[]> {
-    // Interactive model picker requests should bypass the short list cache so
-    // newly pulled models appear immediately without requiring a reload.
-    const forceRefresh = !options.silent;
-
     const now = Date.now();
-    if (
-      !forceRefresh &&
-      this.cachedModelList.length > 0 &&
-      now - this.lastModelListRefreshMs < MODEL_LIST_REFRESH_MIN_INTERVAL_MS
-    ) {
+    if (this.cachedModelList.length > 0 && now - this.lastModelListRefreshMs < MODEL_LIST_REFRESH_MIN_INTERVAL_MS) {
       return this.cachedModelList;
     }
 
@@ -105,16 +97,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
       this.cachedModelList = resolvedModels;
       this.lastModelListRefreshMs = Date.now();
 
-      if (resolvedModels.length > 0) {
-        this.modelsChangeEventEmitter.fire();
-        return resolvedModels;
-      }
-
-      if (this.cachedModelList.length > 0) {
-        return this.cachedModelList;
-      }
-
-      return [];
+      return resolvedModels.length > 0 ? resolvedModels : this.cachedModelList;
     } catch (error) {
       this.outputChannel.exception('[Ollama] Failed to fetch models', error);
       return this.cachedModelList;
@@ -138,11 +121,12 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
   }
 
   /**
-   * Flush the model cache and notify VS Code to re-query the model list.
-   * Useful for a manual "refresh" command.
+   * Invalidate the model list cache and notify VS Code to re-query.
+   * Preserves per-model info cache so unchanged models don't get re-fetched.
    */
   refreshModels(): void {
-    this.clearModelCache();
+    this.cachedModelList = [];
+    this.lastModelListRefreshMs = 0;
     this.modelsChangeEventEmitter.fire();
   }
 

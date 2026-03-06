@@ -97,7 +97,7 @@ describe('OllamaChatModelProvider caching', () => {
     vi.restoreAllMocks();
   });
 
-  it('throttles model list refreshes inside 30 seconds', async () => {
+  it('throttles model list refreshes inside 5 seconds', async () => {
     const list = vi.fn().mockResolvedValue({ models: [{ name: 'llama3' }] });
     const show = vi.fn().mockResolvedValue({ template: '', details: { families: [] } });
 
@@ -114,7 +114,7 @@ describe('OllamaChatModelProvider caching', () => {
     expect(show).toHaveBeenCalledTimes(1);
   });
 
-  it('bypasses throttle for interactive (non-silent) model list requests', async () => {
+  it('fetches a fresh model list after the 5-second throttle window', async () => {
     const list = vi
       .fn()
       .mockResolvedValueOnce({ models: [{ name: 'llama3' }] })
@@ -128,9 +128,9 @@ describe('OllamaChatModelProvider caching', () => {
     );
 
     await provider.provideLanguageModelChatInformation({ silent: true }, {} as any);
-    // Second request is interactive (model picker), so it should force refresh
-    // even though we are still within the throttle window.
-    const models = await provider.provideLanguageModelChatInformation({ silent: false }, {} as any);
+    // Advance time past the 5-second throttle window so the next call re-fetches.
+    vi.setSystemTime(new Date('2026-03-05T00:00:06.000Z'));
+    const models = await provider.provideLanguageModelChatInformation({ silent: true }, {} as any);
 
     expect(list).toHaveBeenCalledTimes(2);
     expect(models.map(m => m.id)).toContain('starcoder2');
