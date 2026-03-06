@@ -47,9 +47,9 @@ export class ModelTreeItem extends TreeItem {
     }
 
     if (type === 'local-running' || type === 'cloud-running') {
-      this.iconPath = createThemeIcon('circle-play');
+      this.iconPath = createThemeIcon('play-circle');
     } else if (type === 'local-stopped' || type === 'cloud-stopped') {
-      this.iconPath = createThemeIcon('stop-circle');
+      this.iconPath = createThemeIcon('debug-stop');
     } else if (type === 'library-model-downloaded-variant') {
       this.iconPath = createThemeIcon('check');
     }

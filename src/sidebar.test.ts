@@ -157,20 +157,20 @@ describe('LocalModelsProvider', () => {
     expect(item.description).toContain('1m');
   });
 
-  it('uses circle-play icon for running models', () => {
+  it('uses play-circle icon for running models', () => {
     const localRunning = new ModelTreeItem('llama2:latest', 'local-running', 3826087936, 90_000);
     const cloudRunning = new ModelTreeItem('cloud/llama2:latest', 'cloud-running', undefined, 90_000);
 
-    expect((localRunning.iconPath as { id: string }).id).toBe('circle-play');
-    expect((cloudRunning.iconPath as { id: string }).id).toBe('circle-play');
+    expect((localRunning.iconPath as { id: string }).id).toBe('play-circle');
+    expect((cloudRunning.iconPath as { id: string }).id).toBe('play-circle');
   });
 
-  it('uses stop-circle icon for stopped models', () => {
+  it('uses debug-stop icon for stopped models', () => {
     const localStopped = new ModelTreeItem('mistral:latest', 'local-stopped', 4109738016);
     const cloudStopped = new ModelTreeItem('cloud/mistral:latest', 'cloud-stopped');
 
-    expect((localStopped.iconPath as { id: string }).id).toBe('stop-circle');
-    expect((cloudStopped.iconPath as { id: string }).id).toBe('stop-circle');
+    expect((localStopped.iconPath as { id: string }).id).toBe('debug-stop');
+    expect((cloudStopped.iconPath as { id: string }).id).toBe('debug-stop');
   });
 
   it('returns tree item unchanged', () => {
