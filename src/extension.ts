@@ -11,6 +11,18 @@ import { registerModelfileManager } from './modelfiles.js';
 const LANGUAGE_MODEL_VENDOR = 'selfagency-ollama';
 let builtInOllamaConflictPromptInProgress = false;
 
+function isSelectedAction(selection: unknown, actionLabel: string): boolean {
+  if (typeof selection === 'string') {
+    return selection === actionLabel;
+  }
+
+  if (selection && typeof selection === 'object' && 'title' in selection) {
+    return (selection as { title?: unknown }).title === actionLabel;
+  }
+
+  return false;
+}
+
 /**
  * Handle configuration changes for log level and auto-start log streaming
  */
@@ -94,22 +106,28 @@ export async function handleBuiltInOllamaConflict(
       'Disable Built-in Ollama Provider',
     );
 
-    if (selection !== 'Disable Built-in Ollama Provider') return;
+    if (!isSelectedAction(selection, 'Disable Built-in Ollama Provider')) return;
 
     // Use empty string to disable the built-in provider explicitly.
     // Using undefined can fall back to a non-empty default and keep it enabled.
-    await (ws.getConfiguration('github.copilot.chat') as vscode.WorkspaceConfiguration).update(
-      'ollama.url',
-      '',
-      vscode.ConfigurationTarget.Global,
-    );
+    try {
+      await (ws.getConfiguration('github.copilot.chat') as vscode.WorkspaceConfiguration).update(
+        'ollama.url',
+        '',
+        vscode.ConfigurationTarget.Global,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await vscode.window.showErrorMessage(`Failed to disable Copilot's built-in Ollama provider: ${message}`);
+      return;
+    }
 
     const reloadSelection = await win.showInformationMessage(
       "Copilot's built-in Ollama provider has been disabled. Reload VS Code to apply.",
       'Reload Window',
     );
 
-    if (reloadSelection === 'Reload Window') {
+    if (isSelectedAction(reloadSelection, 'Reload Window')) {
       await commands.executeCommand('workbench.action.reloadWindow');
     }
   } finally {
