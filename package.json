@@ -323,13 +323,18 @@
         },
         {
           "command": "ollama-copilot.pullModelFromLibrary",
-          "when": "view == ollama-library-models && viewItem == library-model",
+          "when": "view == ollama-library-models && viewItem == library-model-variant",
+          "group": "inline@1"
+        },
+        {
+          "command": "ollama-copilot.pullModelFromLibrary",
+          "when": "view == ollama-library-models && viewItem == library-model-downloaded-variant",
           "group": "inline@1"
         },
         {
           "command": "ollama-copilot.openLibraryModelPage",
           "when": "view == ollama-library-models && viewItem == library-model",
-          "group": "inline@2"
+          "group": "inline@1"
         },
         {
           "command": "ollama-copilot.startCloudModel",

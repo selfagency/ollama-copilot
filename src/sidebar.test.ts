@@ -587,6 +587,119 @@ describe('LocalModelsProvider', () => {
     // After dispose, provider should be cleaned up
     expect(libraryProvider).toBeDefined();
   });
+
+  it('library-model item has Collapsed collapsible state', () => {
+    const item = new ModelTreeItem('llama3.2', 'library-model');
+    expect(item.collapsibleState).toBe(1); // TreeItemCollapsibleState.Collapsed
+  });
+
+  it('getChildren with library-model parent fetches and returns variant children', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url === 'https://ollama.com/library') {
+          return Promise.resolve({ ok: true, text: async () => '<a href="/library/llama3.2"></a>' });
+        }
+        if (url === 'https://ollama.com/library/llama3.2') {
+          return Promise.resolve({
+            ok: true,
+            text: async () => '<a href="/library/llama3.2:1b"></a><a href="/library/llama3.2:3b"></a>',
+          });
+        }
+        return Promise.resolve({ ok: false, status: 404 });
+      }),
+    );
+
+    const libraryProvider = new LibraryModelsProvider(async () => new Set<string>(), undefined);
+    const parents = await libraryProvider.getChildren();
+    const parent = parents.find((item: any) => item.label === 'llama3.2');
+    expect(parent).toBeDefined();
+
+    const children = await libraryProvider.getChildren(parent);
+    expect(children.length).toBeGreaterThan(0);
+    expect(children.some((c: any) => c.label === 'llama3.2:1b')).toBe(true);
+    expect(children.some((c: any) => c.label === 'llama3.2:3b')).toBe(true);
+    libraryProvider.dispose();
+  });
+
+  it('downloaded variant has check icon and library-model-downloaded-variant contextValue', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url === 'https://ollama.com/library') {
+          return Promise.resolve({ ok: true, text: async () => '<a href="/library/llama3.2"></a>' });
+        }
+        if (url === 'https://ollama.com/library/llama3.2') {
+          return Promise.resolve({ ok: true, text: async () => '<a href="/library/llama3.2:1b"></a>' });
+        }
+        return Promise.resolve({ ok: false, status: 404 });
+      }),
+    );
+
+    const libraryProvider = new LibraryModelsProvider(
+      async () => new Set<string>(),
+      undefined,
+      () => new Set(['llama3.2:1b']),
+    );
+    const parents = await libraryProvider.getChildren();
+    const parent = parents.find((item: any) => item.label === 'llama3.2');
+    const children = await libraryProvider.getChildren(parent);
+
+    const downloaded = children.find((c: any) => c.label === 'llama3.2:1b');
+    expect(downloaded?.contextValue).toBe('library-model-downloaded-variant');
+    expect((downloaded?.iconPath as { id: string }).id).toBe('check');
+    libraryProvider.dispose();
+  });
+
+  it('non-downloaded variant has library-model-variant contextValue without icon', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url === 'https://ollama.com/library') {
+          return Promise.resolve({ ok: true, text: async () => '<a href="/library/llama3.2"></a>' });
+        }
+        if (url === 'https://ollama.com/library/llama3.2') {
+          return Promise.resolve({ ok: true, text: async () => '<a href="/library/llama3.2:3b"></a>' });
+        }
+        return Promise.resolve({ ok: false, status: 404 });
+      }),
+    );
+
+    const libraryProvider = new LibraryModelsProvider(
+      async () => new Set<string>(),
+      undefined,
+      () => new Set(),
+    );
+    const parents = await libraryProvider.getChildren();
+    const parent = parents.find((item: any) => item.label === 'llama3.2');
+    const children = await libraryProvider.getChildren(parent);
+
+    const undownloaded = children.find((c: any) => c.label === 'llama3.2:3b');
+    expect(undownloaded?.contextValue).toBe('library-model-variant');
+    expect(undownloaded?.iconPath).toBeUndefined();
+    libraryProvider.dispose();
+  });
+
+  it('getCachedLocalModelNames returns set of local model names after fetch', async () => {
+    const localProvider = new LocalModelsProvider(
+      {
+        list: vi.fn().mockResolvedValue({
+          models: [
+            { name: 'llama2:latest', size: 4000000000 },
+            { name: 'mistral:7b', size: 3000000000 },
+          ],
+        }),
+        ps: vi.fn().mockResolvedValue({ models: [] }),
+      } as unknown as Ollama,
+      undefined,
+    );
+
+    await localProvider.getChildren();
+    const names = localProvider.getCachedLocalModelNames();
+    expect(names.has('llama2:latest')).toBe(true);
+    expect(names.has('mistral:7b')).toBe(true);
+    localProvider.dispose();
+  });
 });
 
 describe('Extracted command handlers', () => {
@@ -1009,7 +1122,7 @@ describe('Extracted command handlers', () => {
 
     const { handlePullModelFromLibrary, ModelTreeItem } = await import('./sidebar.js');
 
-    const item = new ModelTreeItem('mistral:7b', 'library-model');
+    const item = new ModelTreeItem('mistral:7b', 'library-model-variant');
     await handlePullModelFromLibrary(item, { pull: mockPull } as any, { refresh: mockRefresh } as any);
 
     expect(mockPull).toHaveBeenCalledWith({ model: 'mistral:7b', stream: true });
@@ -1088,5 +1201,154 @@ describe('Extracted command handlers', () => {
     expect(item.label).toBe('llama3-tools:latest');
     expect(item.description).toContain('[tools]');
     localProvider.dispose();
+  });
+
+  it('handlePullModelFromLibrary pulls for library-model-variant', async () => {
+    vi.resetModules();
+
+    const progressReport = vi.fn();
+
+    async function* makePullStream() {
+      yield { status: 'success', digest: 'sha256:abc', total: 100, completed: 100 };
+    }
+
+    const mockPull = vi.fn().mockReturnValue(makePullStream());
+    const mockRefresh = vi.fn();
+
+    vi.doMock('vscode', () => ({
+      TreeItem: class {
+        label: string;
+        description?: string;
+        contextValue?: string;
+        collapsibleState?: number;
+        tooltip?: string;
+        command?: unknown;
+        constructor(label: string) {
+          this.label = label;
+        }
+      },
+      ThemeIcon: class {},
+      TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
+      EventEmitter: class {
+        event = {};
+        fire = vi.fn();
+      },
+      window: {
+        showInformationMessage: vi.fn(),
+        showErrorMessage: vi.fn(),
+        withProgress: vi.fn(async (_opts: unknown, task: (p: { report: typeof progressReport }) => Promise<void>) => {
+          await task({ report: progressReport });
+        }),
+      },
+      workspace: {
+        getConfiguration: vi.fn(() => ({ get: vi.fn() })),
+        onDidChangeConfiguration: vi.fn(() => ({ dispose: vi.fn() })),
+      },
+      ProgressLocation: { Notification: 15 },
+    }));
+
+    const { handlePullModelFromLibrary, ModelTreeItem } = await import('./sidebar.js');
+
+    const item = new ModelTreeItem('llama3.2:1b', 'library-model-variant');
+    await handlePullModelFromLibrary(item, { pull: mockPull } as any, { refresh: mockRefresh } as any);
+
+    expect(mockPull).toHaveBeenCalledWith({ model: 'llama3.2:1b', stream: true });
+    expect(mockRefresh).toHaveBeenCalled();
+  });
+
+  it('handlePullModelFromLibrary pulls for library-model-downloaded-variant', async () => {
+    vi.resetModules();
+
+    const progressReport = vi.fn();
+
+    async function* makePullStream() {
+      yield { status: 'success', digest: 'sha256:abc', total: 100, completed: 100 };
+    }
+
+    const mockPull = vi.fn().mockReturnValue(makePullStream());
+    const mockRefresh = vi.fn();
+
+    vi.doMock('vscode', () => ({
+      TreeItem: class {
+        label: string;
+        description?: string;
+        contextValue?: string;
+        collapsibleState?: number;
+        tooltip?: string;
+        command?: unknown;
+        constructor(label: string) {
+          this.label = label;
+        }
+      },
+      ThemeIcon: class {},
+      TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
+      EventEmitter: class {
+        event = {};
+        fire = vi.fn();
+      },
+      window: {
+        showInformationMessage: vi.fn(),
+        showErrorMessage: vi.fn(),
+        withProgress: vi.fn(async (_opts: unknown, task: (p: { report: typeof progressReport }) => Promise<void>) => {
+          await task({ report: progressReport });
+        }),
+      },
+      workspace: {
+        getConfiguration: vi.fn(() => ({ get: vi.fn() })),
+        onDidChangeConfiguration: vi.fn(() => ({ dispose: vi.fn() })),
+      },
+      ProgressLocation: { Notification: 15 },
+    }));
+
+    const { handlePullModelFromLibrary, ModelTreeItem } = await import('./sidebar.js');
+
+    const item = new ModelTreeItem('llama3.2:1b', 'library-model-downloaded-variant');
+    await handlePullModelFromLibrary(item, { pull: mockPull } as any, { refresh: mockRefresh } as any);
+
+    expect(mockPull).toHaveBeenCalledWith({ model: 'llama3.2:1b', stream: true });
+    expect(mockRefresh).toHaveBeenCalled();
+  });
+
+  it('handlePullModelFromLibrary skips library-model parent items', async () => {
+    vi.resetModules();
+
+    const mockPull = vi.fn();
+
+    vi.doMock('vscode', () => ({
+      TreeItem: class {
+        label: string;
+        description?: string;
+        contextValue?: string;
+        collapsibleState?: number;
+        tooltip?: string;
+        command?: unknown;
+        constructor(label: string) {
+          this.label = label;
+        }
+      },
+      ThemeIcon: class {},
+      TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
+      EventEmitter: class {
+        event = {};
+        fire = vi.fn();
+      },
+      window: {
+        showInformationMessage: vi.fn(),
+        showErrorMessage: vi.fn(),
+        withProgress: vi.fn(),
+      },
+      workspace: {
+        getConfiguration: vi.fn(() => ({ get: vi.fn() })),
+        onDidChangeConfiguration: vi.fn(() => ({ dispose: vi.fn() })),
+      },
+      ProgressLocation: { Notification: 15 },
+    }));
+
+    const { handlePullModelFromLibrary, ModelTreeItem } = await import('./sidebar.js');
+
+    const item = new ModelTreeItem('llama3.2', 'library-model');
+    await handlePullModelFromLibrary(item, { pull: mockPull } as any, { refresh: vi.fn() } as any);
+
+    expect(mockPull).not.toHaveBeenCalled();
   });
 });

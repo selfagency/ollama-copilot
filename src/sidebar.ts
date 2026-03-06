@@ -30,6 +30,8 @@ export class ModelTreeItem extends TreeItem {
       | 'local-running'
       | 'local-stopped'
       | 'library-model'
+      | 'library-model-variant'
+      | 'library-model-downloaded-variant'
       | 'cloud-running'
       | 'cloud-stopped'
       | 'status',
@@ -40,10 +42,16 @@ export class ModelTreeItem extends TreeItem {
     this.contextValue = type;
     this.collapsibleState = TreeItemCollapsibleState.None;
 
+    if (type === 'library-model') {
+      this.collapsibleState = TreeItemCollapsibleState.Collapsed;
+    }
+
     if (type === 'local-running' || type === 'cloud-running') {
       this.iconPath = createThemeIcon('circle-play');
     } else if (type === 'local-stopped' || type === 'cloud-stopped') {
       this.iconPath = createThemeIcon('stop-circle');
+    } else if (type === 'library-model-downloaded-variant') {
+      this.iconPath = createThemeIcon('check');
     }
 
     if (type === 'local-stopped' || type === 'cloud-stopped') {
@@ -188,6 +196,7 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
   private refreshIntervals: NodeJS.Timeout[] = [];
   private localModelCapabilitiesCache = new Map<string, ModelCapabilities>();
   private localModelCapabilitiesInFlight = new Set<string>();
+  private cachedLocalModelNames = new Set<string>();
 
   constructor(
     private client: Ollama,
@@ -307,6 +316,7 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
         `[Ollama] Local models loaded: ${items.length} total, ${items.filter(m => m.type === 'local-running').length} running`,
       );
 
+      this.cachedLocalModelNames = new Set(listResponse.models.map(m => m.name));
       return items.length > 0 ? items : [makeStatusItem('No local models found')];
     } catch (error) {
       this.logChannel?.exception('[Ollama] Failed to load local models', error);
@@ -321,6 +331,13 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
     this.logChannel?.debug('[Ollama] Manual refresh triggered');
     this.treeChangeEmitter.fire(null);
     this.onLocalModelsChanged?.();
+  }
+
+  /**
+   * Get the cached set of locally installed model names (populated after each fetch)
+   */
+  getCachedLocalModelNames(): Set<string> {
+    return new Set(this.cachedLocalModelNames);
   }
 
   /**
@@ -448,10 +465,12 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
   private refreshIntervals: NodeJS.Timeout[] = [];
   private loadPromise: Promise<string[]> | null = null;
   private sortMode: LibrarySortMode;
+  private variantsCache = new Map<string, ModelTreeItem[]>();
 
   constructor(
     private getCloudModelNames: () => Promise<Set<string>>,
     private logChannel?: DiagnosticsLogger,
+    private getLocalModelNames: () => Set<string> = () => new Set(),
   ) {
     this.sortMode = this.getSortModeFromConfig();
     this.startAutoRefresh();
@@ -462,6 +481,16 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
   }
 
   async getChildren(element?: ModelTreeItem): Promise<ModelTreeItem[]> {
+    if (element?.type === 'library-model') {
+      const cached = this.variantsCache.get(element.label);
+      if (cached) {
+        return cached;
+      }
+      const variants = await this.fetchModelVariants(element.label, this.getLocalModelNames());
+      this.variantsCache.set(element.label, variants);
+      return variants;
+    }
+
     if (element) {
       return [];
     }
@@ -473,6 +502,7 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
     this.cache = [];
     this.cacheTimeMs = 0;
     this.loadPromise = null;
+    this.variantsCache.clear();
     this.cacheGeneration++;
     this.treeChangeEmitter.fire(null);
   }
@@ -578,6 +608,10 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
         if (normalized.includes('/cloud/')) {
           return false;
         }
+        // Exclude variant-style names (e.g., llama3.2:1b) from the top-level list
+        if (normalized.includes(':')) {
+          return false;
+        }
         return !cloudNames.has(name);
       });
 
@@ -621,6 +655,45 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
 
     // Recency mode: return array in order fetched (newest first from the HTML)
     return names;
+  }
+
+  private async fetchModelVariants(modelName: string, localNames: Set<string>): Promise<ModelTreeItem[]> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const url = getLibraryModelUrl(modelName);
+
+    try {
+      const response = await fetch(url, { method: 'GET', signal: controller.signal });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const html = await response.text();
+      const escapedName = modelName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const variantPattern = new RegExp(`href="/library/(${escapedName}:[^"?#]+)"`, 'g');
+      const matches = [...html.matchAll(variantPattern)];
+      const variantNames = [
+        ...new Set(matches.map(m => (typeof m[1] === 'string' ? decodeURIComponent(m[1]).trim() : '')).filter(Boolean)),
+      ];
+
+      if (variantNames.length === 0) {
+        return [makeStatusItem('No variants found')];
+      }
+
+      return variantNames.map(name => {
+        const isDownloaded = localNames.has(name);
+        const item = new ModelTreeItem(
+          name,
+          isDownloaded ? 'library-model-downloaded-variant' : 'library-model-variant',
+        );
+        item.tooltip = name;
+        return item;
+      });
+    } catch {
+      return [makeStatusItem('Failed to load variants')];
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private getSortModeFromConfig(): LibrarySortMode {
@@ -998,7 +1071,7 @@ export async function handlePullModelFromLibrary(
   localProvider: LocalModelsProvider,
   logChannel?: DiagnosticsLogger,
 ): Promise<void> {
-  if (item && item.type === 'library-model') {
+  if (item && (item.type === 'library-model-variant' || item.type === 'library-model-downloaded-variant')) {
     await pullModelWithProgress(client, item.label, localProvider, logChannel);
   }
 }
@@ -1059,7 +1132,11 @@ export function registerSidebar(
 ): void {
   const localProvider = new LocalModelsProvider(client, logChannel, onLocalModelsChanged);
   const cloudProvider = new CloudModelsProvider(context, logChannel);
-  const libraryProvider = new LibraryModelsProvider(() => cloudProvider.getCloudModelNamesForFilter(), logChannel);
+  const libraryProvider = new LibraryModelsProvider(
+    () => cloudProvider.getCloudModelNamesForFilter(),
+    logChannel,
+    () => localProvider.getCachedLocalModelNames(),
+  );
   const syncLibrarySortContext = () => {
     const mode = libraryProvider.getSortMode();
     void commands.executeCommand('setContext', 'ollama.librarySortMode', mode);
