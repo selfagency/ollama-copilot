@@ -457,6 +457,9 @@
         "displayName": "🦙 Ollama",
         "configuration": {
           "managementCommand": "ollama-copilot.manageAuthToken"
+        },
+        "canCreateWith": {
+          "toolCalling": false
         }
       }
     ],
