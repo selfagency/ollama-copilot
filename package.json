@@ -107,11 +107,6 @@
           "name": "Library"
         },
         {
-          "id": "ollama-model-preview",
-          "name": "Model Details",
-          "type": "webview"
-        },
-        {
           "icon": "$(file-code)",
           "id": "ollama-modelfiles",
           "name": "Modelfiles"
@@ -122,6 +117,7 @@
       {
         "command": "ollama-copilot.manageAuthToken",
         "title": "Manage Ollama Auth Token",
+        "icon": "$(key)",
         "category": "Ollama"
       },
       {
@@ -197,12 +193,6 @@
         "category": "Ollama"
       },
       {
-        "command": "ollama-copilot.previewLibraryModel",
-        "title": "Ollama Model Details",
-        "icon": "$(preview)",
-        "category": "Ollama"
-      },
-      {
         "command": "ollama-copilot.refreshCloudModels",
         "title": "Refresh Ollama Cloud Models",
         "icon": "$(refresh)",
@@ -211,6 +201,7 @@
       {
         "command": "ollama-copilot.manageCloudApiKey",
         "title": "Manage Ollama Cloud API Key",
+        "icon": "$(key)",
         "category": "Ollama"
       },
       {
@@ -262,6 +253,11 @@
           "command": "ollama-copilot.refreshLocalModels",
           "when": "view == ollama-local-models",
           "group": "navigation"
+        },
+        {
+          "command": "ollama-copilot.manageAuthToken",
+          "when": "view == ollama-local-models",
+          "group": "navigation@9"
         },
         {
           "command": "ollama-copilot.refreshLibrary",
@@ -334,11 +330,6 @@
           "command": "ollama-copilot.openLibraryModelPage",
           "when": "view == ollama-library-models && viewItem == library-model",
           "group": "inline@2"
-        },
-        {
-          "command": "ollama-copilot.previewLibraryModel",
-          "when": "view == ollama-library-models && viewItem == library-model",
-          "group": "navigation@1"
         },
         {
           "command": "ollama-copilot.startCloudModel",
