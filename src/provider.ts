@@ -32,6 +32,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
   private cachedModelList: LanguageModelChatInformation[] = [];
   private lastModelListRefreshMs = 0;
   private modelListRefreshPromise: Promise<LanguageModelChatInformation[]> | undefined;
+  private refreshGeneration = 0;
   private modelsChangeEventEmitter: EventEmitter<void> = new EventEmitter();
   private toolCallIdMap: Map<string, string> = new Map();
   private reverseToolCallIdMap: Map<string, string> = new Map();
@@ -72,6 +73,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
 
   private async refreshModelList(): Promise<LanguageModelChatInformation[]> {
     const now = Date.now();
+    const generation = this.refreshGeneration;
 
     try {
       const response = await this.client.list();
@@ -94,8 +96,13 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
       );
 
       const resolvedModels = models.filter((model): model is LanguageModelChatInformation => Boolean(model));
-      this.cachedModelList = resolvedModels;
-      this.lastModelListRefreshMs = Date.now();
+      // Only write to the shared cache if no newer refresh has been requested
+      // since this fetch started. This prevents a stale in-flight fetch from
+      // overwriting the result of a faster post-pull fetch.
+      if (generation === this.refreshGeneration) {
+        this.cachedModelList = resolvedModels;
+        this.lastModelListRefreshMs = Date.now();
+      }
 
       return resolvedModels.length > 0 ? resolvedModels : this.cachedModelList;
     } catch (error) {
@@ -127,6 +134,10 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
   refreshModels(): void {
     this.cachedModelList = [];
     this.lastModelListRefreshMs = 0;
+    // Discard any in-flight fetch started before this refresh so the next
+    // provideLanguageModelChatInformation call starts a fresh one.
+    this.modelListRefreshPromise = undefined;
+    this.refreshGeneration++;
     this.modelsChangeEventEmitter.fire();
   }
 
