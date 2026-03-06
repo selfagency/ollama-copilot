@@ -322,7 +322,7 @@ describe('LocalModelsProvider', () => {
     const modelsAfterSortChange = await libraryProvider.getChildren();
 
     const libraryFetchUrls = mockFetch.mock.calls
-      .map(([url]: [string]) => url)
+      .map(call => String(call[0]))
       .filter(
         (url: string) => url === 'https://ollama.com/library' || url === 'https://ollama.com/library?sort=newest',
       );
