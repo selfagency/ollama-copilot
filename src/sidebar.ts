@@ -10,6 +10,7 @@ import {
   TreeDataProvider,
   TreeItem,
   TreeItemCollapsibleState,
+  ThemeIcon,
   Uri,
   window,
   workspace,
@@ -40,9 +41,9 @@ export class ModelTreeItem extends TreeItem {
     this.collapsibleState = TreeItemCollapsibleState.None;
 
     if (type === 'local-running' || type === 'cloud-running') {
-      this.iconPath = { id: 'circle-play' } as unknown as { id: string };
+      this.iconPath = createThemeIcon('circle-play');
     } else if (type === 'local-stopped' || type === 'cloud-stopped') {
-      this.iconPath = { id: 'stop-circle' } as unknown as { id: string };
+      this.iconPath = createThemeIcon('stop-circle');
     }
 
     if (type === 'local-stopped' || type === 'cloud-stopped') {
@@ -72,6 +73,13 @@ export class ModelTreeItem extends TreeItem {
     if (mins > 0) return `${mins}m ${secs % 60}s`;
     return `${secs}s`;
   }
+}
+
+function createThemeIcon(id: string): ThemeIcon {
+  // The bundled `vscode` typings in this repo mark the constructor private,
+  // but VS Code runtime supports codicon IDs for TreeItem ThemeIcon values.
+  const ThemeIconCtor = ThemeIcon as unknown as { new (iconId: string): ThemeIcon };
+  return new ThemeIconCtor(id);
 }
 
 function makeStatusItem(label: string): ModelTreeItem {
