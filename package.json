@@ -125,6 +125,12 @@
         "category": "Ollama"
       },
       {
+        "command": "ollama-copilot.refreshModels",
+        "title": "Refresh Ollama Models",
+        "icon": "$(refresh)",
+        "category": "Ollama"
+      },
+      {
         "command": "ollama-copilot.refreshSidebar",
         "title": "Refresh Local Ollama Models",
         "icon": "$(refresh)",

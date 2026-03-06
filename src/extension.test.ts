@@ -895,17 +895,27 @@ describe('handleChatRequest direct Ollama path (thinking + tools)', () => {
   it('streams thinking tokens with a reasoning header and separator', async () => {
     vi.doMock('./client.js', () => ({ getOllamaClient: vi.fn(), testConnection: vi.fn() }));
     vi.doMock('./diagnostics.js', () => ({
-      createDiagnosticsLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), exception: vi.fn() }),
+      createDiagnosticsLogger: () => ({
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+        exception: vi.fn(),
+      }),
       getConfiguredLogLevel: vi.fn(() => 'info'),
     }));
     vi.doMock('./provider.js', () => ({
-      OllamaChatModelProvider: class { setAuthToken = vi.fn(); },
+      OllamaChatModelProvider: class {
+        setAuthToken = vi.fn();
+      },
       isThinkingModelId: (id: string) => /(qwen3|qwq|deepseek-?r1|cogito|phi\d+-reasoning)/i.test(id),
     }));
     vi.doMock('./sidebar.js', () => ({ registerSidebar: vi.fn() }));
     vi.doMock('./modelfiles.js', () => ({ registerModelfileManager: vi.fn() }));
     vi.doMock('vscode', () => ({
-      LanguageModelTextPart: class { constructor(public value: string) {} },
+      LanguageModelTextPart: class {
+        constructor(public value: string) {}
+      },
       LanguageModelChatMessageRole: { User: 1, Assistant: 2 },
       ChatRequestTurn: class {},
       ChatResponseTurn: class {},
@@ -940,21 +950,15 @@ describe('handleChatRequest direct Ollama path (thinking + tools)', () => {
       model: { vendor: 'selfagency-ollama', id: 'qwen3:8b' },
     };
 
-    await ext.handleChatRequest(
-      request as any,
-      { history: [] } as any,
-      stream as any,
-      token as any,
-      mockClient as any,
-    );
+    await ext.handleChatRequest(request as any, { history: [] } as any, stream as any, token as any, mockClient as any);
 
     const allCalls = mockMarkdown.mock.calls.map((c: any[]) => c[0] as string);
     // Thinking header should appear
-    expect(allCalls.some((v: string) => v.includes('Reasoning') || v.includes('reasoning'))).toBe(true);
+    expect(allCalls.some((v: string) => v.includes('Thinking') || v.includes('thinking'))).toBe(true);
     // Thinking content should be streamed
     expect(allCalls.some((v: string) => v.includes('step 1: consider options'))).toBe(true);
-    // Separator before answer
-    expect(allCalls.some((v: string) => v.includes('---'))).toBe(true);
+    // Should close the details section before answer
+    expect(allCalls.some((v: string) => v.includes('</details>'))).toBe(true);
     // Final answer
     expect(allCalls.some((v: string) => v.includes('The answer is 42.'))).toBe(true);
   });
@@ -962,17 +966,27 @@ describe('handleChatRequest direct Ollama path (thinking + tools)', () => {
   it('passes think: true for known thinking model IDs', async () => {
     vi.doMock('./client.js', () => ({ getOllamaClient: vi.fn(), testConnection: vi.fn() }));
     vi.doMock('./diagnostics.js', () => ({
-      createDiagnosticsLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), exception: vi.fn() }),
+      createDiagnosticsLogger: () => ({
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+        exception: vi.fn(),
+      }),
       getConfiguredLogLevel: vi.fn(() => 'info'),
     }));
     vi.doMock('./provider.js', () => ({
-      OllamaChatModelProvider: class { setAuthToken = vi.fn(); },
+      OllamaChatModelProvider: class {
+        setAuthToken = vi.fn();
+      },
       isThinkingModelId: (id: string) => /(qwen3|qwq|deepseek-?r1|cogito|phi\d+-reasoning)/i.test(id),
     }));
     vi.doMock('./sidebar.js', () => ({ registerSidebar: vi.fn() }));
     vi.doMock('./modelfiles.js', () => ({ registerModelfileManager: vi.fn() }));
     vi.doMock('vscode', () => ({
-      LanguageModelTextPart: class { constructor(public value: string) {} },
+      LanguageModelTextPart: class {
+        constructor(public value: string) {}
+      },
       LanguageModelChatMessageRole: { User: 1, Assistant: 2 },
       ChatRequestTurn: class {},
       ChatResponseTurn: class {},
@@ -1005,13 +1019,7 @@ describe('handleChatRequest direct Ollama path (thinking + tools)', () => {
       model: { vendor: 'selfagency-ollama', id: 'qwen3:8b' },
     };
 
-    await ext.handleChatRequest(
-      request as any,
-      { history: [] } as any,
-      stream as any,
-      token as any,
-      mockClient as any,
-    );
+    await ext.handleChatRequest(request as any, { history: [] } as any, stream as any, token as any, mockClient as any);
 
     expect(mockChat).toHaveBeenCalledWith(expect.objectContaining({ think: true }));
   });
@@ -1019,17 +1027,27 @@ describe('handleChatRequest direct Ollama path (thinking + tools)', () => {
   it('formats tool calls as markdown in participant path', async () => {
     vi.doMock('./client.js', () => ({ getOllamaClient: vi.fn(), testConnection: vi.fn() }));
     vi.doMock('./diagnostics.js', () => ({
-      createDiagnosticsLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), exception: vi.fn() }),
+      createDiagnosticsLogger: () => ({
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+        exception: vi.fn(),
+      }),
       getConfiguredLogLevel: vi.fn(() => 'info'),
     }));
     vi.doMock('./provider.js', () => ({
-      OllamaChatModelProvider: class { setAuthToken = vi.fn(); },
+      OllamaChatModelProvider: class {
+        setAuthToken = vi.fn();
+      },
       isThinkingModelId: (id: string) => /(qwen3|qwq|deepseek-?r1|cogito|phi\d+-reasoning)/i.test(id),
     }));
     vi.doMock('./sidebar.js', () => ({ registerSidebar: vi.fn() }));
     vi.doMock('./modelfiles.js', () => ({ registerModelfileManager: vi.fn() }));
     vi.doMock('vscode', () => ({
-      LanguageModelTextPart: class { constructor(public value: string) {} },
+      LanguageModelTextPart: class {
+        constructor(public value: string) {}
+      },
       LanguageModelChatMessageRole: { User: 1, Assistant: 2 },
       ChatRequestTurn: class {},
       ChatResponseTurn: class {},
@@ -1069,13 +1087,7 @@ describe('handleChatRequest direct Ollama path (thinking + tools)', () => {
       model: { vendor: 'selfagency-ollama', id: 'llama3.2:latest' },
     };
 
-    await ext.handleChatRequest(
-      request as any,
-      { history: [] } as any,
-      stream as any,
-      token as any,
-      mockClient as any,
-    );
+    await ext.handleChatRequest(request as any, { history: [] } as any, stream as any, token as any, mockClient as any);
 
     const allCalls = mockMarkdown.mock.calls.map((c: any[]) => c[0] as string);
     expect(allCalls.some((v: string) => v.includes('get_weather'))).toBe(true);

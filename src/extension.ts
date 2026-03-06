@@ -6,9 +6,9 @@ import type { ChatResponse, Ollama } from 'ollama';
 import * as vscode from 'vscode';
 import { getOllamaClient, testConnection } from './client.js';
 import { createDiagnosticsLogger, getConfiguredLogLevel, type DiagnosticsLogger } from './diagnostics.js';
+import { registerModelfileManager } from './modelfiles.js';
 import { isThinkingModelId, OllamaChatModelProvider } from './provider.js';
 import { registerSidebar } from './sidebar.js';
-import { registerModelfileManager } from './modelfiles.js';
 
 const LANGUAGE_MODEL_VENDOR = 'selfagency-ollama';
 let builtInOllamaConflictPromptInProgress = false;
@@ -271,9 +271,7 @@ export async function handleChatRequest(
     try {
       // Convert VS Code messages to the plain Ollama format expected by the client.
       const ollamaMessages = messages.map(msg => ({
-        role: (msg.role === vscode.LanguageModelChatMessageRole.User ? 'user' : 'assistant') as
-          | 'user'
-          | 'assistant',
+        role: (msg.role === vscode.LanguageModelChatMessageRole.User ? 'user' : 'assistant') as 'user' | 'assistant',
         content: (Array.isArray(msg.content) ? msg.content : [])
           .filter((p): p is vscode.LanguageModelTextPart => p instanceof vscode.LanguageModelTextPart)
           .map(p => p.value)
@@ -320,7 +318,7 @@ export async function handleChatRequest(
 
         if (chunk.message?.thinking) {
           if (!thinkingStarted) {
-            stream.markdown('\n\n💭 **Reasoning**\n\n');
+            stream.markdown('\n\n<details>\n<summary>💭 Thinking</summary>\n\n');
             thinkingStarted = true;
           }
           stream.markdown(chunk.message.thinking);
@@ -328,7 +326,7 @@ export async function handleChatRequest(
 
         if (chunk.message?.content) {
           if (thinkingStarted && !contentStarted) {
-            stream.markdown('\n\n---\n\n');
+            stream.markdown('\n\n</details>\n\n');
             contentStarted = true;
           }
           outputChannel?.debug(`[Ollama] @ollama chunk: ${chunk.message.content.substring(0, 50)}`);
@@ -346,6 +344,10 @@ export async function handleChatRequest(
         if (chunk.done) {
           break;
         }
+      }
+
+      if (thinkingStarted && !contentStarted) {
+        stream.markdown('\n\n</details>\n\n');
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';

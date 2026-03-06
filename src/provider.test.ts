@@ -623,7 +623,7 @@ describe('OllamaChatModelProvider chat response', () => {
         yield { message: { thinking: ' more reasoning' } };
         yield { message: { content: 'The answer is 42.' } };
         yield { message: {}, done: true };
-      })()
+      })(),
     );
 
     vi.mocked(getOllamaClient).mockResolvedValueOnce({ chat, abort: vi.fn() } as any);
@@ -663,11 +663,11 @@ describe('OllamaChatModelProvider chat response', () => {
 
     // Should include a header for thinking section
     const allValues = progress.report.mock.calls.map((c: any[]) => c[0]?.value ?? '');
-    expect(allValues.some((v: string) => v.includes('Reasoning') || v.includes('reasoning'))).toBe(true);
+    expect(allValues.some((v: string) => v.includes('Thinking') || v.includes('thinking'))).toBe(true);
     // Should include thinking content
     expect(allValues.some((v: string) => v.includes('let me reason...'))).toBe(true);
-    // Should include separator before answer
-    expect(allValues.some((v: string) => v.includes('---'))).toBe(true);
+    // Should close the details section before answer
+    expect(allValues.some((v: string) => v.includes('</details>'))).toBe(true);
     // Should include answer
     expect(allValues.some((v: string) => v.includes('The answer is 42.'))).toBe(true);
   });
@@ -676,7 +676,7 @@ describe('OllamaChatModelProvider chat response', () => {
     const chat = vi.fn().mockResolvedValue(
       (async function* () {
         yield { message: { content: 'done' }, done: true };
-      })()
+      })(),
     );
 
     vi.mocked(getOllamaClient).mockResolvedValueOnce({ chat, abort: vi.fn() } as any);
@@ -721,7 +721,7 @@ describe('OllamaChatModelProvider chat response', () => {
     const chat = vi.fn().mockResolvedValue(
       (async function* () {
         yield { message: { content: 'done' }, done: true };
-      })()
+      })(),
     );
 
     vi.mocked(getOllamaClient).mockResolvedValueOnce({ chat, abort: vi.fn() } as any);
@@ -764,12 +764,13 @@ describe('OllamaChatModelProvider chat response', () => {
   });
 
   it('retries without think when model returns ResponseError "does not support thinking"', async () => {
-    const thinkingError = Object.assign(
-      new Error('"cogito:latest" does not support thinking'),
-      { name: 'ResponseError', status_code: 400 },
-    );
+    const thinkingError = Object.assign(new Error('"cogito:latest" does not support thinking'), {
+      name: 'ResponseError',
+      status_code: 400,
+    });
 
-    const chat = vi.fn()
+    const chat = vi
+      .fn()
       .mockRejectedValueOnce(thinkingError)
       .mockResolvedValueOnce(
         (async function* () {
@@ -824,12 +825,13 @@ describe('OllamaChatModelProvider chat response', () => {
   });
 
   it('does not retry again on second call when model is in nonThinkingModels', async () => {
-    const thinkingError = Object.assign(
-      new Error('"cogito:latest" does not support thinking'),
-      { name: 'ResponseError', status_code: 400 },
-    );
+    const thinkingError = Object.assign(new Error('"cogito:latest" does not support thinking'), {
+      name: 'ResponseError',
+      status_code: 400,
+    });
 
-    const chat = vi.fn()
+    const chat = vi
+      .fn()
       .mockRejectedValueOnce(thinkingError)
       .mockResolvedValueOnce(
         (async function* () {

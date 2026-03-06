@@ -468,12 +468,27 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
   }
 
   /**
-   * Stop a running model
+   * Stop a running model and show a progress indicator until it is fully unloaded
    */
   async stopModel(modelName: string): Promise<void> {
     try {
       this.logChannel?.debug(`[Ollama] Stopping model: ${modelName}`);
-      await this.client.generate({ model: modelName, prompt: '', stream: false, keep_alive: 0 });
+      await window.withProgress(
+        { location: ProgressLocation.Notification, title: `Stopping ${modelName}…`, cancellable: false },
+        async () => {
+          await this.client.generate({ model: modelName, prompt: '', stream: false, keep_alive: 0 });
+          // Poll until the model disappears from the running process list (max 30 s)
+          for (let i = 0; i < 30; i++) {
+            await new Promise<void>(resolve => setTimeout(resolve, 1000));
+            try {
+              const { models } = await this.client.ps();
+              if (!models.some(m => m.name === modelName)) break;
+            } catch {
+              break; // ps() failed — assume model is gone
+            }
+          }
+        },
+      );
       this.logChannel?.info(`[Ollama] Model stopped: ${modelName}`);
       this.refresh();
       window.showInformationMessage(`Model ${modelName} stopped`);

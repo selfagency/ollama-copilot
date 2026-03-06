@@ -277,10 +277,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
   private isThinkingModel(modelResponse: unknown): boolean {
     const response = modelResponse as Record<string, unknown>;
     const capabilities = response.capabilities;
-    return (
-      Array.isArray(capabilities) &&
-      capabilities.some(cap => String(cap).toLowerCase().includes('thinking'))
-    );
+    return Array.isArray(capabilities) && capabilities.some(cap => String(cap).toLowerCase().includes('thinking'));
   }
 
   /**
@@ -337,8 +334,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
     const perRequestClient = await getOllamaClient(this.context);
 
     let shouldThink =
-      (this.thinkingModels.has(model.id) || isThinkingModelId(model.id)) &&
-      !this.nonThinkingModels.has(model.id);
+      (this.thinkingModels.has(model.id) || isThinkingModelId(model.id)) && !this.nonThinkingModels.has(model.id);
 
     try {
       let response: AsyncIterable<ChatResponse>;
@@ -378,7 +374,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
         // Handle thinking tokens (reasoning phase)
         if (chunk.message?.thinking) {
           if (!thinkingStarted) {
-            progress.report(new LanguageModelTextPart('\n\n💭 **Reasoning**\n\n'));
+            progress.report(new LanguageModelTextPart('\n\n<details>\n<summary>💭 Thinking</summary>\n\n'));
             thinkingStarted = true;
           }
           progress.report(new LanguageModelTextPart(chunk.message.thinking));
@@ -387,7 +383,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
         // Stream text chunks immediately as they arrive
         if (chunk.message?.content) {
           if (thinkingStarted && !contentStarted) {
-            progress.report(new LanguageModelTextPart('\n\n---\n\n'));
+            progress.report(new LanguageModelTextPart('\n\n</details>\n\n'));
             contentStarted = true;
           }
           this.outputChannel.debug?.(`[Ollama] Streaming chunk: ${chunk.message.content.substring(0, 50)}`);
@@ -415,6 +411,10 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
         if (chunk.done === true) {
           break;
         }
+      }
+
+      if (thinkingStarted && !contentStarted) {
+        progress.report(new LanguageModelTextPart('\n\n</details>\n\n'));
       }
     } catch (error) {
       this.outputChannel.exception('[Ollama] Chat response failed', error);
