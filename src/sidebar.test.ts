@@ -326,6 +326,38 @@ describe('LocalModelsProvider', () => {
     localProvider.dispose();
   });
 
+  it('stopModel shows progress and polls until model is gone', async () => {
+    vi.useFakeTimers();
+
+    const generate = vi.fn().mockResolvedValue(undefined);
+    const ps = vi
+      .fn()
+      .mockResolvedValueOnce({ models: [{ name: 'llama2' }] }) // still running
+      .mockResolvedValueOnce({ models: [] }); // now gone
+
+    const localProvider = new LocalModelsProvider(
+      {
+        list: vi.fn().mockResolvedValue({ models: [] }),
+        ps,
+        generate,
+      } as unknown as Ollama,
+      undefined,
+    );
+
+    const stopPromise = localProvider.stopModel('llama2');
+
+    // Advance 2s to drive two 1000 ms poll intervals (still-running → gone)
+    await vi.advanceTimersByTimeAsync(2000);
+
+    await stopPromise;
+
+    expect(generate).toHaveBeenCalledWith({ model: 'llama2', prompt: '', stream: false, keep_alive: 0 });
+    expect(ps).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+    localProvider.dispose();
+  });
+
   it('library provider sort mode configuration', async () => {
     vi.stubGlobal(
       'fetch',

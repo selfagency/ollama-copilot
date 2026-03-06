@@ -1,4 +1,4 @@
-import { Ollama } from 'ollama';
+import { Ollama, type ChatResponse, type ShowResponse } from 'ollama';
 import {
   CancellationToken,
   EventEmitter,
@@ -21,6 +21,7 @@ import type { DiagnosticsLogger } from './diagnostics.js';
 
 const MODEL_LIST_REFRESH_MIN_INTERVAL_MS = 30_000;
 const MODEL_INFO_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const MODEL_SHOW_TIMEOUT_MS = 2_000;
 
 /**
  * Ollama Chat Model Provider
@@ -30,9 +31,12 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
   private modelInfoCache: Map<string, { info: LanguageModelChatInformation; updatedAtMs: number }> = new Map();
   private cachedModelList: LanguageModelChatInformation[] = [];
   private lastModelListRefreshMs = 0;
+  private modelListRefreshPromise: Promise<LanguageModelChatInformation[]> | undefined;
   private modelsChangeEventEmitter: EventEmitter<void> = new EventEmitter();
   private toolCallIdMap: Map<string, string> = new Map();
   private reverseToolCallIdMap: Map<string, string> = new Map();
+  private thinkingModels = new Set<string>();
+  private nonThinkingModels = new Set<string>();
 
   readonly onDidChangeLanguageModelChatInformation = this.modelsChangeEventEmitter.event;
 
@@ -54,6 +58,21 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
       return this.cachedModelList;
     }
 
+    if (this.modelListRefreshPromise) {
+      return this.modelListRefreshPromise;
+    }
+
+    this.modelListRefreshPromise = this.refreshModelList();
+    try {
+      return await this.modelListRefreshPromise;
+    } finally {
+      this.modelListRefreshPromise = undefined;
+    }
+  }
+
+  private async refreshModelList(): Promise<LanguageModelChatInformation[]> {
+    const now = Date.now();
+
     try {
       const response = await this.client.list();
       const modelNames = new Set(response.models.map(model => model.name));
@@ -66,13 +85,10 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
             return cached.info;
           }
 
-          const info = await this.getChatModelInfo(model.name);
-          if (info) {
-            const updatedAtMs = Date.now();
-            this.modelInfoCache.set(model.name, { info, updatedAtMs });
-            this.models.set(model.name, info);
-          }
-
+          const info = await this.getChatModelInfoWithFallback(model.name);
+          const updatedAtMs = Date.now();
+          this.modelInfoCache.set(model.name, { info, updatedAtMs });
+          this.models.set(model.name, info);
           return info;
         }),
       );
@@ -114,19 +130,110 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
   }
 
   /**
+   * Flush the model cache and notify VS Code to re-query the model list.
+   * Useful for a manual "refresh" command.
+   */
+  refreshModels(): void {
+    this.clearModelCache();
+    this.modelsChangeEventEmitter.fire();
+  }
+
+  /**
+   * Build lightweight model information when detailed metadata is unavailable.
+   */
+  private getBaseChatModelInfo(modelId: string): LanguageModelChatInformation {
+    const contextLength = getContextLengthOverride();
+    return {
+      id: modelId,
+      name: formatModelName(modelId),
+      family: 'Ollama',
+      version: '1.0.0',
+      detail: 'Ollama',
+      tooltip: `Ollama • ${modelId}`,
+      maxInputTokens: contextLength,
+      maxOutputTokens: contextLength,
+      capabilities: {
+        imageInput: false,
+        toolCalling: false,
+      },
+    };
+  }
+
+  /**
+   * Resolve chat model information with a timeout fallback so model discovery
+   * cannot block chat startup on slow /api/show responses.
+   */
+  private async getChatModelInfoWithFallback(modelId: string): Promise<LanguageModelChatInformation> {
+    const fallback = this.getBaseChatModelInfo(modelId);
+
+    try {
+      const timed = await Promise.race<LanguageModelChatInformation | undefined>([
+        this.getChatModelInfo(modelId),
+        new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), MODEL_SHOW_TIMEOUT_MS)),
+      ]);
+
+      return timed ?? fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  /**
    * Get information about a specific model
    */
   private async getChatModelInfo(modelId: string): Promise<LanguageModelChatInformation | undefined> {
     try {
       const response = await this.client.show({ model: modelId });
 
+      // Prefer the model's actual context window; fall back to the user override, then 0.
+      const typedResponse = response as ShowResponse & { modelinfo?: Map<string, unknown> | Record<string, unknown> };
+      const modelinfo =
+        (typedResponse.model_info as Map<string, unknown> | Record<string, unknown> | undefined) ??
+        typedResponse.modelinfo;
+      const parameters = typedResponse.parameters;
+      let contextLength = getContextLengthOverride();
+      if (!contextLength) {
+        // Ollama exposes context_length in model_info using family-specific keys
+        // (e.g. llama.context_length, qwen2.context_length, gemma.context_length).
+        let infoCtx: unknown;
+        if (modelinfo instanceof Map) {
+          for (const [key, value] of modelinfo.entries()) {
+            if (key === 'context_length' || key.endsWith('.context_length')) {
+              infoCtx = value;
+              break;
+            }
+          }
+        } else if (modelinfo && typeof modelinfo === 'object') {
+          for (const [key, value] of Object.entries(modelinfo)) {
+            if (key === 'context_length' || key.endsWith('.context_length')) {
+              infoCtx = value;
+              break;
+            }
+          }
+        }
+
+        if (typeof infoCtx === 'number' && infoCtx > 0) {
+          contextLength = infoCtx;
+        } else if (parameters) {
+          // Fall back to parsing the num_ctx line from the parameters string
+          const match = /^num_ctx\s+(\d+)/m.exec(parameters);
+          if (match) contextLength = parseInt(match[1], 10);
+        }
+      }
+
+      if (this.isThinkingModel(response)) {
+        this.thinkingModels.add(modelId);
+      }
+
       return {
         id: modelId,
         name: formatModelName(modelId),
-        family: 'ollama',
+        family: 'Ollama',
         version: '1.0.0',
-        maxInputTokens: getContextLengthOverride(),
-        maxOutputTokens: getContextLengthOverride(),
+        detail: 'Ollama',
+        tooltip: `Ollama • ${modelId}`,
+        maxInputTokens: contextLength,
+        maxOutputTokens: contextLength,
         capabilities: {
           imageInput: this.isVisionModel(response),
           toolCalling: this.isToolModel(response),
@@ -139,12 +246,38 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
   }
 
   /**
+   * Returns true when the Ollama SDK reports that the model does not support
+   * the `think` option (HTTP 400 "does not support thinking").
+   */
+  private isThinkingNotSupportedError(error: unknown): boolean {
+    return (
+      error instanceof Error &&
+      error.name === 'ResponseError' &&
+      error.message.toLowerCase().includes('does not support thinking')
+    );
+  }
+
+  /**
    * Check if model supports tool use
    */
   private isToolModel(modelResponse: unknown): boolean {
     const response = modelResponse as Record<string, unknown>;
+    const capabilities = response.capabilities;
+    if (Array.isArray(capabilities) && capabilities.some(cap => String(cap).toLowerCase().includes('tool'))) {
+      return true;
+    }
+
     const template = response.template as string | undefined;
     return template ? template.includes('{{ .Tools }}') : false;
+  }
+
+  /**
+   * Check if model supports extended thinking / reasoning
+   */
+  private isThinkingModel(modelResponse: unknown): boolean {
+    const response = modelResponse as Record<string, unknown>;
+    const capabilities = response.capabilities;
+    return Array.isArray(capabilities) && capabilities.some(cap => String(cap).toLowerCase().includes('thinking'));
   }
 
   /**
@@ -152,6 +285,15 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
    */
   private isVisionModel(modelResponse: unknown): boolean {
     const response = modelResponse as Record<string, unknown>;
+    const capabilities = response.capabilities;
+    if (Array.isArray(capabilities) && capabilities.some(cap => String(cap).toLowerCase().includes('vision'))) {
+      return true;
+    }
+
+    if (response.projector_info) {
+      return true;
+    }
+
     const details = response.details as Record<string, unknown> | undefined;
     const families = details?.families as string[] | undefined;
     return families ? families.includes('clip') || families.includes('vision') : false;
@@ -167,57 +309,95 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
     progress: Progress<LanguageModelResponsePart>,
     token: CancellationToken,
   ): Promise<void> {
+    this.clearToolCallIdMappings();
+
+    // Convert VS Code messages to Ollama format
+    const ollamaMessages = this.toOllamaMessages(messages);
+
+    // Build tools array if supported
+    let tools: Parameters<typeof this.client.chat>[0]['tools'] | undefined;
+    if (options.tools && options.tools.length > 0 && model.capabilities.toolCalling) {
+      tools = options.tools.map(tool => ({
+        type: 'function' as const,
+        function: {
+          name: tool.name,
+          description: tool.description || '',
+          parameters: tool.inputSchema as Record<string, unknown>,
+        },
+      }));
+    }
+
+    // Create a per-request client to isolate this stream's connection from others.
+    // Do NOT call abort() on cancellation — abruptly closing the HTTP connection
+    // mid-generation destabilises Ollama. The isCancellationRequested check in the
+    // loop below provides safe cooperative cancellation instead.
+    const perRequestClient = await getOllamaClient(this.context);
+
+    let shouldThink =
+      (this.thinkingModels.has(model.id) || isThinkingModelId(model.id)) && !this.nonThinkingModels.has(model.id);
+
     try {
-      this.clearToolCallIdMappings();
+      let response: AsyncIterable<ChatResponse>;
 
-      // Convert VS Code messages to Ollama format
-      const ollamaMessages = this.toOllamaMessages(messages);
-
-      // Build tools array if supported
-      let tools: Parameters<typeof this.client.chat>[0]['tools'] | undefined;
-      if (options.tools && options.tools.length > 0 && model.capabilities.toolCalling) {
-        tools = options.tools.map(tool => ({
-          type: 'function' as const,
-          function: {
-            name: tool.name,
-            description: tool.description || '',
-            parameters: tool.inputSchema as Record<string, unknown>,
-          },
-        }));
+      try {
+        response = await perRequestClient.chat({
+          model: model.id,
+          messages: ollamaMessages,
+          stream: true,
+          tools,
+          ...(shouldThink ? { think: true } : {}),
+        });
+      } catch (innerError) {
+        if (shouldThink && this.isThinkingNotSupportedError(innerError)) {
+          this.thinkingModels.delete(model.id);
+          this.nonThinkingModels.add(model.id);
+          response = await perRequestClient.chat({
+            model: model.id,
+            messages: ollamaMessages,
+            stream: true,
+            tools,
+          });
+        } else {
+          throw innerError;
+        }
       }
 
-      // Stream chat response
-      const response = this.client.chat({
-        model: model.id,
-        messages: ollamaMessages,
-        stream: true,
-        tools,
-      });
+      let thinkingStarted = false;
+      let contentStarted = false;
 
-      let currentText = '';
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      for await (const chunk of response as any) {
+      for await (const chunk of response) {
         if (token.isCancellationRequested) {
           break;
         }
 
+        // Handle thinking tokens (reasoning phase)
+        if (chunk.message?.thinking) {
+          if (!thinkingStarted) {
+            progress.report(new LanguageModelTextPart('\n\n💭 **Thinking**\n\n'));
+            thinkingStarted = true;
+          }
+          progress.report(new LanguageModelTextPart(chunk.message.thinking));
+        }
+
+        // Stream text chunks immediately as they arrive
         if (chunk.message?.content) {
-          currentText += chunk.message.content;
+          if (thinkingStarted && !contentStarted) {
+            progress.report(new LanguageModelTextPart('\n\n---\n\n'));
+            contentStarted = true;
+          }
+          this.outputChannel.debug?.(`[Ollama] Streaming chunk: ${chunk.message.content.substring(0, 50)}`);
+          progress.report(new LanguageModelTextPart(chunk.message.content));
         }
 
         // Handle tool calls
         if (chunk.message?.tool_calls && Array.isArray(chunk.message.tool_calls)) {
-          // Flush accumulated text
-          if (currentText.trim()) {
-            progress.report(new LanguageModelTextPart(currentText));
-            currentText = '';
-          }
-
           for (const toolCall of chunk.message.tool_calls) {
-            // Map tool call ID and emit tool call
             const vsCodeId = this.generateToolCallId();
-            this.mapToolCallId(vsCodeId, toolCall.id || '');
+            const upstreamId =
+              typeof (toolCall as { id?: unknown }).id === 'string'
+                ? (toolCall as unknown as { id: string }).id
+                : vsCodeId;
+            this.mapToolCallId(vsCodeId, upstreamId);
 
             progress.report(
               new LanguageModelToolCallPart(
@@ -228,16 +408,22 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
             );
           }
         }
-      }
 
-      // Flush any remaining text
-      if (currentText.trim()) {
-        progress.report(new LanguageModelTextPart(currentText));
+        // Some Ollama responses set done=true before the underlying stream closes.
+        // Exit promptly so VS Code doesn't stay in a perpetual "waiting" state.
+        if (chunk.done === true) {
+          break;
+        }
       }
     } catch (error) {
       this.outputChannel.exception('[Ollama] Chat response failed', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      progress.report(new LanguageModelTextPart(`Error: ${errorMessage}`));
+      const isConnectionError = error instanceof TypeError && error.message.includes('fetch failed');
+      const message = isConnectionError
+        ? 'Cannot reach Ollama server — check that it is running and accessible.'
+        : error instanceof Error
+          ? error.message
+          : String(error);
+      progress.report(new LanguageModelTextPart(`Error: ${message}`));
     }
   }
 
@@ -253,22 +439,16 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
       const role = msg.role === LanguageModelChatMessageRole.User ? 'user' : 'assistant';
       const ollamaMsg: Record<string, unknown> = { role };
 
-      // Extract and assemble content
-      const contentParts: (string | Record<string, unknown>)[] = [];
+      // Extract text and images in Ollama's expected shape
       let textContent = '';
+      const images: string[] = [];
 
       for (const part of msg.content) {
         if (part instanceof LanguageModelTextPart) {
           textContent += part.value;
         } else if (part instanceof LanguageModelDataPart) {
           const base64Data = typeof part.data === 'string' ? part.data : Buffer.from(part.data).toString('base64');
-
-          contentParts.push({
-            type: 'image',
-            image: {
-              url: `data:image/jpeg;base64,${base64Data}`,
-            },
-          });
+          images.push(base64Data);
         } else if (part instanceof LanguageModelToolCallPart) {
           ollamaMsg.tool_calls = ollamaMsg.tool_calls || [];
           (ollamaMsg.tool_calls as Record<string, unknown>[]).push({
@@ -288,14 +468,12 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
         }
       }
 
-      if (textContent) {
-        contentParts.unshift(textContent);
+      // Ollama requires content to be a string (images are separate field)
+      if (textContent || images.length > 0) {
+        ollamaMsg.content = textContent;
       }
-
-      if (contentParts.length === 1 && typeof contentParts[0] === 'string') {
-        ollamaMsg.content = contentParts[0];
-      } else if (contentParts.length > 0) {
-        ollamaMsg.content = contentParts;
+      if (images.length > 0) {
+        ollamaMsg.images = images;
       }
 
       if (ollamaMsg.content || ollamaMsg.tool_calls) {
@@ -422,13 +600,33 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
 }
 
 /**
+ * Regex pattern for models that support extended thinking / reasoning.
+ * Used as a fallback when the /api/show capabilities array is not yet cached.
+ */
+const THINKING_MODEL_PATTERN = /qwen3|qwq|deepseek-?r1|cogito|phi\d+-reasoning/i;
+
+export function isThinkingModelId(modelId: string): boolean {
+  return THINKING_MODEL_PATTERN.test(modelId);
+}
+
+/**
  * Format model name for display
  */
 export function formatModelName(modelId: string): string {
-  return modelId
-    .replace(/^ollama\//, '')
-    .replace(/-/g, ' ')
+  // Strip @digest suffix (e.g. :7b@1.0.0 → :7b)
+  const withoutDigest = modelId.replace(/@[^:/]+$/, '');
+  // Strip namespace/ prefix (e.g. m3cha/m3cha-coder → m3cha-coder)
+  const withoutNamespace = withoutDigest.replace(/^[^/]+\//, '');
+  // Split name and tag on the first `:` so we can format them independently
+  const colonIdx = withoutNamespace.indexOf(':');
+  const namePart = colonIdx === -1 ? withoutNamespace : withoutNamespace.slice(0, colonIdx);
+  const tagPart = colonIdx === -1 ? '' : withoutNamespace.slice(colonIdx); // includes the `:` prefix
+  // Capitalise each word in the name, replacing hyphens/underscores with spaces
+  const formattedName = namePart
+    .replace(/[-_]/g, ' ')
     .split(' ')
+    .filter(Boolean)
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
+  return formattedName + tagPart;
 }

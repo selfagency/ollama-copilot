@@ -16,7 +16,7 @@ import {
   window,
   workspace,
 } from 'vscode';
-import { fetchModelCapabilities } from './client.js';
+import { fetchModelCapabilities, type ModelCapabilities } from './client.js';
 import type { DiagnosticsLogger } from './diagnostics.js';
 
 type LibrarySortMode = 'name' | 'recency';
@@ -254,6 +254,8 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
   readonly onDidChangeTreeData: Event<ModelTreeItem | null> = this.treeChangeEmitter.event;
 
   private refreshIntervals: NodeJS.Timeout[] = [];
+  private localModelCapabilitiesCache = new Map<string, ModelCapabilities>();
+  private localModelCapabilitiesInFlight = new Set<string>();
 
   constructor(
     private client: Ollama,
@@ -325,28 +327,42 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
               // Keep initial tooltip on error
             },
           );
-          // Fetch capability badges asynchronously
-          void fetchModelCapabilities(this.client, model.name).then(
-            caps => {
-              const badges: string[] = [];
-              if (caps.toolCalling) badges.push('tools');
-              if (caps.imageInput) badges.push('vision');
-              if (badges.length > 0) {
-                const badgeStr = badges.map(b => `[${b}]`).join(' ');
-                const existing = (item.description ?? '').toString();
-                // Strip any previously-added capability badges before re-appending
-                // so repeated refreshes don't duplicate them.
-                const knownBadgePattern = badges.map(b => `\\[${b}\\]`).join('|');
-                const stripRe = new RegExp(`\\s*(${knownBadgePattern})(\\s*(${knownBadgePattern}))*\\s*$`, 'i');
-                const cleaned = existing.replace(stripRe, '').trim();
-                item.description = cleaned ? `${cleaned} ${badgeStr}` : badgeStr;
+
+          const appendBadges = (caps: ModelCapabilities) => {
+            const badges: string[] = [];
+            if (caps.toolCalling) badges.push('tools');
+            if (caps.imageInput) badges.push('vision');
+            if (badges.length === 0) {
+              return;
+            }
+
+            const badgeStr = badges.map(b => `[${b}]`).join(' ');
+            const existing = (item.description ?? '').toString();
+            const knownBadgePattern = badges.map(b => `\\[${b}\\]`).join('|');
+            const stripRe = new RegExp(`\\s*(${knownBadgePattern})(\\s*(${knownBadgePattern}))*\\s*$`, 'i');
+            const cleaned = existing.replace(stripRe, '').trim();
+            item.description = cleaned ? `${cleaned} ${badgeStr}` : badgeStr;
+          };
+
+          const cachedCaps = this.localModelCapabilitiesCache.get(model.name);
+          if (cachedCaps) {
+            appendBadges(cachedCaps);
+          } else if (!this.localModelCapabilitiesInFlight.has(model.name)) {
+            this.localModelCapabilitiesInFlight.add(model.name);
+            // Fetch capabilities once per local model name.
+            void fetchModelCapabilities(this.client, model.name)
+              .then(caps => {
+                this.localModelCapabilitiesCache.set(model.name, caps);
+                appendBadges(caps);
                 this.treeChangeEmitter.fire(item);
-              }
-            },
-            () => {
-              // Silently skip badges on error
-            },
-          );
+              })
+              .catch(() => {
+                // Silently skip badges on error
+              })
+              .finally(() => {
+                this.localModelCapabilitiesInFlight.delete(model.name);
+              });
+          }
 
           return item;
         })
@@ -452,12 +468,27 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
   }
 
   /**
-   * Stop a running model
+   * Stop a running model and show a progress indicator until it is fully unloaded
    */
   async stopModel(modelName: string): Promise<void> {
     try {
       this.logChannel?.debug(`[Ollama] Stopping model: ${modelName}`);
-      await this.client.generate({ model: modelName, prompt: '', stream: false, keep_alive: 0 });
+      await window.withProgress(
+        { location: ProgressLocation.Notification, title: `Stopping ${modelName}…`, cancellable: false },
+        async () => {
+          await this.client.generate({ model: modelName, prompt: '', stream: false, keep_alive: 0 });
+          // Poll until the model disappears from the running process list (max 30 s)
+          for (let i = 0; i < 30; i++) {
+            await new Promise<void>(resolve => setTimeout(resolve, 1000));
+            try {
+              const { models } = await this.client.ps();
+              if (!models.some(m => m.name === modelName)) break;
+            } catch {
+              break; // ps() failed — assume model is gone
+            }
+          }
+        },
+      );
       this.logChannel?.info(`[Ollama] Model stopped: ${modelName}`);
       this.refresh();
       window.showInformationMessage(`Model ${modelName} stopped`);

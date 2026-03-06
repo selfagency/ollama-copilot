@@ -9,8 +9,8 @@ export async function getOllamaClient(context: ExtensionContext): Promise<Ollama
   const host = config.get<string>('host') || 'http://localhost:11434';
   const authToken = await context.secrets.get('ollama-auth-token');
 
-  const clientConfig: { baseURL: string; headers?: Record<string, string> } = {
-    baseURL: host,
+  const clientConfig: { host: string; headers?: Record<string, string> } = {
+    host,
   };
 
   if (authToken) {
