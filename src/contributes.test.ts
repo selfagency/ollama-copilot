@@ -8,10 +8,10 @@ type PackageJson = {
       activitybar?: Array<{ id: string; icon?: string }>;
     };
     views?: Record<string, Array<{ id: string; type?: string }>>;
-    commands?: Array<{ command: string; title?: string; category?: string }>;
+    commands?: Array<{ command: string; title?: string; category?: string; icon?: string }>;
     menus?: {
-      'view/title'?: Array<{ command: string; when?: string }>;
-      'view/item/context'?: Array<{ command: string; when?: string }>;
+      'view/title'?: Array<{ command: string; when?: string; group?: string }>;
+      'view/item/context'?: Array<{ command: string; when?: string; group?: string }>;
     };
     languageModelChatProviders?: Array<{ vendor: string }>;
   };
@@ -93,5 +93,15 @@ describe('package contributes integrity', () => {
     const commands = (pkg.contributes?.commands ?? []) as PkgCommand[];
     const missing = commands.filter(c => c.category !== 'Ollama').map(c => c.command);
     expect(missing).toEqual([]);
+  });
+
+  it('all view/title navigation-group commands have an icon', () => {
+    const pkg = loadPackageJson();
+    const commandIconMap = new Map((pkg.contributes?.commands ?? []).map(c => [c.command, c.icon]));
+    const navMenuEntries = (pkg.contributes?.menus?.['view/title'] ?? []).filter(
+      entry => typeof entry.group === 'string' && entry.group.startsWith('navigation'),
+    );
+    const missingIcon = navMenuEntries.filter(entry => !commandIconMap.get(entry.command)).map(entry => entry.command);
+    expect(missingIcon).toEqual([]);
   });
 });
