@@ -5,13 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - 2026-03-07
+## [Unreleased]
 
 ### Added
 
 - `LanguageModelChatProvider` registration under vendor `selfagency-ollama`, making local Ollama models available in GitHub Copilot Chat and the VS Code model picker
 - `@ollama` chat participant (`ollama-copilot.ollama`) with history-aware direct streaming to the Ollama API
 - Tool calling support for compatible models (e.g. `qwen2.5`, `llama3.1`) via the VS Code LM tool API; all models advertise `toolCalling: true` for picker visibility
+- Full agentic tool-invocation loop in `@ollama` participant (up to 10 rounds)
 - Vision / multimodal image input support
 - Thinking model support — automatically retries with `think: false` when the model does not support extended thinking
 - Model management sidebar with three panels: **Local Models**, **Library Models**, and **Cloud Models** (requires API key)
@@ -30,78 +31,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `participant.iconPath` now uses `vscode.Uri.joinPath` so the icon resolves correctly in remote and web extension hosts
+- Tool result messages in the direct Ollama agentic loop now include `tool_call_id` so Ollama can correlate results with the originating call
+- VS Code LM API fallback agentic loop now buffers assistant text alongside tool-call parts and appends the full assistant turn to the conversation, ensuring subsequent rounds have complete context
 - Non-tool-calling models now appear in the VS Code model picker (resolved by advertising `toolCalling: true` unconditionally; native support tracked separately)
 - LM response streamed per-token rather than buffered to a single chunk
 - Cloud model run flow: pull model before start; model name suffixes applied correctly
+- Cross-platform path support for disabling VS Code's built-in Ollama provider (macOS, Linux, Windows)
+- `tool_call_id` now included on tool result messages sent to Ollama
+- `LanguageModelToolResultPart.content` serialization fixed to correctly extract text values
+- Integration test IDs corrected to reference `selfagency.ollama-copilot`
 
 ## [1.0.9] - 2026-03-05
 
-## What's Changed
+### Fixed
 
-- fix: resolve model display and extension activation issues by @selfagency in https://github.com/selfagency/mistral-models-vscode/pull/4
-
-**Full Changelog**: https://github.com/selfagency/mistral-models-vscode/compare/v0.1.8...v1.0.9
-
-_Source: changes from v0.1.8 to v1.0.9._
-
-## [0.1.8] - 2026-03-04
-
-## What's Changed
-
-- ui: show 'Mistral AI' in manage models detail by @selfagency in https://github.com/selfagency/mistral-models-vscode/pull/3
-- ci: run tests on release tag pushes by @selfagency in https://github.com/selfagency/mistral-models-vscode/pull/2
-
-**Full Changelog**: https://github.com/selfagency/mistral-models-vscode/compare/v0.1.7...v0.1.8
-
-_Source: changes from v0.1.7 to v0.1.8._
-
-## [0.1.7] - 2026-03-04
-
-## What's Changed
-
-- Show 'Mistral AI' in manage models dropdown by @selfagency in https://github.com/selfagency/mistral-models-vscode/pull/1
-
-## New Contributors
-
-- @selfagency made their first contribution in https://github.com/selfagency/mistral-models-vscode/pull/1
-
-**Full Changelog**: https://github.com/selfagency/mistral-models-vscode/compare/v0.1.6...v0.1.7
-
-_Source: changes from v0.1.6 to v0.1.7._
-
-## [0.1.6] - 2026-03-01
-
-**Full Changelog**: https://github.com/selfagency/mistral-models-vscode/compare/v0.1.5...v0.1.6
-
-_Source: changes from v0.1.5 to v0.1.6._
+- Resolve model display and extension activation issues
 
 ## [0.1.5] - 2026-02-28
 
-- Fixed extension bundling so dependencies are compiled into dist; removed pnpm/npm incompatibility in vsce publish
-- Fixed release script: removed non-existent 'Remote Tests' workflow gate; fixed CHANGELOG insertion order
-- Fixed release workflow: removed Tests-run SHA check that blocked releases when only metadata files changed
+### Fixed
+
+- Extension bundling: dependencies compiled into `dist`; removed pnpm/npm incompatibility in `vsce publish`
+- Release script: removed non-existent 'Remote Tests' workflow gate; fixed CHANGELOG insertion order
+- Release workflow: removed Tests-run SHA check that blocked releases when only metadata files changed
 
 ## [0.1.4] - 2026-02-28
 
-- Forked archived project from <https://github.com/OEvortex/vscode-mistral-copilot-chat>
-- Fixed failing tool calls
-- Added support for all available Mistral models
-- Added `@mistral` chat participant
-- Added full test suite
+### Added
 
-## [0.1.3] - 2025-12-31
-
-- Fixed API error with tool call IDs containing underscores - generate valid 9-character alphanumeric IDs when VS Code tool call IDs don't have an existing mapping
-
-## [0.1.2] - 2025-12-23
-
-- Added vision support for Devstral Small 2 model - can now process and analyze images
-- Added tool call ID mapping system to ensure compatibility with VS Code's Language Model API
-- Fixed tool call ID validation error - Mistral API returns IDs like `call_70312205` which don't meet VS Code's requirements for alphanumeric 9-character IDs. Now properly maps between Mistral and VS Code ID formats.
-
-## [0.1.1] - Previous Release
-
-- Integration with Mistral AI models including Devstral, Mistral Large
-- GitHub Copilot Chat compatibility
-- Tool calling support
-- API key management
+- Initial public release of `ollama-copilot` forked from the archived `vscode-mistral-copilot-chat` project
+- Full test suite
+- `@ollama` chat participant
+- Support for all locally running Ollama models
