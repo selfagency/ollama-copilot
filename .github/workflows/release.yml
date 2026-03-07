@@ -23,6 +23,7 @@ jobs:
     name: Detect release tag and readiness
     runs-on: ubuntu-latest
     timeout-minutes: 5
+
     permissions:
       contents: write
       actions: read
@@ -108,8 +109,6 @@ jobs:
     if: needs.detect-tag.outputs.release_tag != '' && needs.detect-tag.outputs.ready == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      PATH: ./node_modules/.bin:$PATH
 
     permissions:
       contents: write
@@ -186,7 +185,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build extension package
-        run: task compile
+        run: ./node_modules/.bin/task compile
 
       - name: Package extension
         run: |

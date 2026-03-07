@@ -49,8 +49,6 @@ jobs:
     if: needs.changes.outputs.src == 'true' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      PATH: ./node_modules/.bin:$PATH
 
     strategy:
       fail-fast: false
@@ -75,21 +73,21 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Check types
-        run: task check-types
+        run: ./node_modules/.bin/task check-types
 
       - name: Lint
-        run: task lint
+        run: ./node_modules/.bin/task lint
 
       - name: Compile
-        run: task compile
+        run: ./node_modules/.bin/task compile
 
       - name: Run unit tests
-        run: xvfb-run -a task unit-test-coverage -- --reporter=default --reporter=junit --outputFile=test-report.junit.xml
+        run: xvfb-run -a ./node_modules/.bin/task unit-test-coverage -- --reporter=default --reporter=junit --outputFile=test-report.junit.xml
         env:
           CI: true
 
       - name: Run extension tests
-        run: task extension-tests
+        run: ./node_modules/.bin/task extension-tests
         env:
           CI: true
 
@@ -120,7 +118,7 @@ jobs:
         shell: bash
 
       - name: Run integration tests
-        run: task integration-tests
+        run: ./node_modules/.bin/task integration-tests
         env:
           CI: true
           OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
