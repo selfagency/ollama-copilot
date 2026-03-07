@@ -16,7 +16,7 @@ import {
   ProvideLanguageModelChatResponseOptions,
   window,
 } from 'vscode';
-import { getContextLengthOverride, getOllamaClient } from './client';
+import { getCloudOllamaClient, getContextLengthOverride, getOllamaClient } from './client';
 import type { DiagnosticsLogger } from './diagnostics.js';
 
 const MODEL_LIST_REFRESH_MIN_INTERVAL_MS = 5_000;
@@ -25,6 +25,40 @@ const MODEL_SHOW_TIMEOUT_MS = 2_000;
 const NON_TOOL_MODEL_MIN_PICKER_CONTEXT_TOKENS = 131_072;
 const ASK_PICKER_CATEGORY = { label: 'Ask', order: 1 } as const;
 const MODEL_ID_PREFIX = 'ollama:';
+
+function isCloudRuntimeModelId(modelId: string): boolean {
+  return /:cloud$/i.test(modelId) || /:[^:\s]+-cloud$/i.test(modelId);
+}
+
+function stripCloudSuffix(modelId: string): string {
+  return modelId.replace(/:cloud$/i, '').replace(/:[^:\s]+-cloud$/i, match => match.replace(/-cloud$/i, ''));
+}
+
+function getCloudAliasKey(modelId: string): string {
+  return isCloudRuntimeModelId(modelId) ? modelId.split(':')[0] : modelId;
+}
+
+function getCloudModelPreferenceScore(modelId: string, isCloudModel: boolean): number {
+  let score = 0;
+  if (isCloudModel) {
+    score += 100;
+  }
+  // Prefer canonical cloud names without explicit cloud tag suffixes.
+  if (!isCloudRuntimeModelId(modelId)) {
+    score += 10;
+  }
+  return score;
+}
+
+function formatDisplayModelName(modelId: string, isCloudModel = false): string {
+  const baseName = formatModelName(modelId);
+  return isCloudModel ? `${baseName} ☁` : baseName;
+}
+
+function formatDisplayDetail(): string {
+  return '🦙 Ollama';
+}
+
 type LanguageModelChatInformationWithPicker = LanguageModelChatInformation & {
   category?: {
     label: string;
@@ -93,20 +127,63 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
 
     try {
       const response = await this.client.list();
-      const modelNames = new Set(response.models.map(model => model.name));
+
+      // Cloud models are only added to the picker when a dedicated cloud API key exists.
+      const cloudApiKey = (await this.context.secrets.get('ollama-cloud-api-key'))?.trim();
+      const cloudClient = cloudApiKey ? await getCloudOllamaClient(this.context) : undefined;
+      const cloudResponse = cloudClient ? await cloudClient.list() : undefined;
+
+      const localModelNames = response.models.map(model => model.name);
+      const cloudModelNames = new Set<string>((cloudResponse?.models ?? []).map(model => model.name));
+      const cloudAliasKeys = new Set<string>([...cloudModelNames].map(getCloudAliasKey));
+
+      // Mark cloud-tag aliases from local list as cloud-sourced if their base name exists in cloud list.
+      const cloudSourcedModelNames = new Set<string>(cloudModelNames);
+      for (const localName of localModelNames) {
+        if (isCloudRuntimeModelId(localName) && cloudAliasKeys.has(localName.split(':')[0])) {
+          cloudSourcedModelNames.add(localName);
+        }
+      }
+
+      // Canonicalize cloud aliases into a single model picker entry.
+      const canonicalModelByKey = new Map<string, string>();
+      const allCandidates = [...new Set([...localModelNames, ...cloudModelNames])].sort((a, b) => a.localeCompare(b));
+      for (const modelName of allCandidates) {
+        const key = getCloudAliasKey(modelName);
+        const isCloudModel = cloudSourcedModelNames.has(modelName);
+        const existing = canonicalModelByKey.get(key);
+        if (!existing) {
+          canonicalModelByKey.set(key, modelName);
+          continue;
+        }
+
+        const existingIsCloud = cloudSourcedModelNames.has(existing);
+        const currentScore = getCloudModelPreferenceScore(modelName, isCloudModel);
+        const existingScore = getCloudModelPreferenceScore(existing, existingIsCloud);
+        if (currentScore > existingScore || (currentScore === existingScore && modelName.localeCompare(existing) < 0)) {
+          canonicalModelByKey.set(key, modelName);
+        }
+      }
+
+      const allModelNames = [...new Set(canonicalModelByKey.values())].sort((a, b) => a.localeCompare(b));
+      const modelNames = new Set(allModelNames);
       this.pruneModelCache(modelNames);
 
       const models = await Promise.all(
-        response.models.map(async model => {
-          const cached = this.modelInfoCache.get(model.name);
+        allModelNames.map(async modelName => {
+          const cached = this.modelInfoCache.get(modelName);
           if (cached && now - cached.updatedAtMs < MODEL_INFO_CACHE_TTL_MS) {
             return cached.info;
           }
 
-          const info = await this.getChatModelInfoWithFallback(model.name);
+          const info = await this.getChatModelInfoWithFallback(
+            modelName,
+            cloudSourcedModelNames.has(modelName),
+            cloudSourcedModelNames.has(modelName) ? cloudClient : undefined,
+          );
           const updatedAtMs = Date.now();
-          this.modelInfoCache.set(model.name, { info, updatedAtMs });
-          this.models.set(model.name, info);
+          this.modelInfoCache.set(modelName, { info, updatedAtMs });
+          this.models.set(modelName, info);
           return info;
         }),
       );
@@ -135,6 +212,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
         // Prune both the runtime ID and the provider-prefixed ID to prevent stale entries.
         this.nativeToolCallingByModelId.delete(modelName);
         this.nativeToolCallingByModelId.delete(this.toProviderModelId(modelName));
+        this.nativeToolCallingByModelId.delete(this.toProviderModelId(modelName) + ':cloud');
       }
     }
   }
@@ -165,20 +243,21 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
   /**
    * Build lightweight model information when detailed metadata is unavailable.
    */
-  private getBaseChatModelInfo(modelId: string): LanguageModelChatInformation {
-    const providerModelId = this.toProviderModelId(modelId);
+  private getBaseChatModelInfo(modelId: string, isCloudModel = false): LanguageModelChatInformation {
+    const baseModelId = stripCloudSuffix(modelId);
+    const providerModelId = this.toProviderModelId(baseModelId) + (isCloudModel ? ':cloud' : '');
     const contextLength = getContextLengthOverride();
     const nativeToolCalling = false;
-    this.nativeToolCallingByModelId.set(modelId, nativeToolCalling);
+    this.nativeToolCallingByModelId.set(baseModelId, nativeToolCalling);
     this.nativeToolCallingByModelId.set(providerModelId, nativeToolCalling);
     return this.withModelPickerMetadata(
       {
         id: providerModelId,
-        name: formatModelName(modelId),
+        name: formatDisplayModelName(baseModelId, isCloudModel),
         family: '🦙 Ollama',
         version: '1.0.0',
-        detail: '🦙 Ollama',
-        tooltip: `🦙 Ollama • ${modelId}`,
+        detail: formatDisplayDetail(),
+        tooltip: `🦙 Ollama • ${baseModelId}`,
         maxInputTokens: this.getAdvertisedContextLength(contextLength, false),
         maxOutputTokens: this.getAdvertisedContextLength(contextLength, false),
         capabilities: {
@@ -261,12 +340,16 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
    * Resolve chat model information with a timeout fallback so model discovery
    * cannot block chat startup on slow /api/show responses.
    */
-  private async getChatModelInfoWithFallback(modelId: string): Promise<LanguageModelChatInformation> {
-    const fallback = this.getBaseChatModelInfo(modelId);
+  private async getChatModelInfoWithFallback(
+    modelId: string,
+    isCloudModel = false,
+    client?: Ollama,
+  ): Promise<LanguageModelChatInformation> {
+    const fallback = this.getBaseChatModelInfo(modelId, isCloudModel);
 
     try {
       const timed = await Promise.race<LanguageModelChatInformation | undefined>([
-        this.getChatModelInfo(modelId),
+        this.getChatModelInfo(modelId, isCloudModel, client),
         new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), MODEL_SHOW_TIMEOUT_MS)),
       ]);
 
@@ -279,10 +362,15 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
   /**
    * Get information about a specific model
    */
-  private async getChatModelInfo(modelId: string): Promise<LanguageModelChatInformation | undefined> {
+  private async getChatModelInfo(
+    modelId: string,
+    isCloudModel = false,
+    client?: Ollama,
+  ): Promise<LanguageModelChatInformation | undefined> {
     try {
-      const response = await this.client.show({ model: modelId });
-      const providerModelId = this.toProviderModelId(modelId);
+      const response = await (client ?? this.client).show({ model: modelId });
+      const baseModelId = stripCloudSuffix(modelId);
+      const providerModelId = this.toProviderModelId(baseModelId) + (isCloudModel ? ':cloud' : '');
 
       // Prefer the model's actual context window; fall back to the user override, then 0.
       const typedResponse = response as ShowResponse & { modelinfo?: Map<string, unknown> | Record<string, unknown> };
@@ -321,22 +409,22 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
       }
 
       if (this.isThinkingModel(response)) {
-        this.thinkingModels.add(modelId);
+        this.thinkingModels.add(baseModelId);
       }
 
       const nativeToolCalling = this.isToolModel(response);
-      this.nativeToolCallingByModelId.set(modelId, nativeToolCalling);
+      this.nativeToolCallingByModelId.set(baseModelId, nativeToolCalling);
       this.nativeToolCallingByModelId.set(providerModelId, nativeToolCalling);
       const advertisedContextLength = this.getAdvertisedContextLength(contextLength, nativeToolCalling);
 
       return this.withModelPickerMetadata(
         {
           id: providerModelId,
-          name: formatModelName(modelId),
+          name: formatDisplayModelName(baseModelId, isCloudModel),
           family: '🦙 Ollama',
           version: '1.0.0',
-          detail: '🦙 Ollama',
-          tooltip: `🦙 Ollama • ${modelId}`,
+          detail: formatDisplayDetail(),
+          tooltip: `🦙 Ollama • ${baseModelId}`,
           maxInputTokens: advertisedContextLength,
           maxOutputTokens: advertisedContextLength,
           capabilities: {
@@ -362,6 +450,19 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
       error.name === 'ResponseError' &&
       error.message.toLowerCase().includes('does not support thinking')
     );
+  }
+
+  /**
+   * Some cloud-backed thinking models can fail with generic 5xx when `think`
+   * is enabled. Treat these as retryable by falling back to non-thinking mode.
+   */
+  private isThinkingServerError(error: unknown): boolean {
+    if (!(error instanceof Error) || error.name !== 'ResponseError') {
+      return false;
+    }
+
+    const message = error.message.toLowerCase();
+    return message.includes('internal server error') || /\b5\d\d\b/.test(message);
   }
 
   /**
@@ -418,6 +519,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
   ): Promise<void> {
     this.clearToolCallIdMappings();
     const runtimeModelId = this.toRuntimeModelId(model.id);
+    const apiModelId = stripCloudSuffix(runtimeModelId);
 
     // Convert VS Code messages to Ollama format
     const ollamaMessages = this.toOllamaMessages(messages);
@@ -441,32 +543,54 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
     // Do NOT call abort() on cancellation — abruptly closing the HTTP connection
     // mid-generation destabilises Ollama. The isCancellationRequested check in the
     // loop below provides safe cooperative cancellation instead.
-    const perRequestClient = await getOllamaClient(this.context);
+    const shouldUseCloudClient = isCloudRuntimeModelId(runtimeModelId);
+    const perRequestClient = shouldUseCloudClient
+      ? ((await getCloudOllamaClient(this.context)) ?? (await getOllamaClient(this.context)))
+      : await getOllamaClient(this.context);
 
     let shouldThink =
-      (this.thinkingModels.has(runtimeModelId) || isThinkingModelId(runtimeModelId)) &&
-      !this.nonThinkingModels.has(runtimeModelId);
+      (this.thinkingModels.has(apiModelId) || isThinkingModelId(apiModelId)) &&
+      !this.nonThinkingModels.has(apiModelId);
 
     try {
       let response: AsyncIterable<ChatResponse>;
 
       try {
         response = await perRequestClient.chat({
-          model: runtimeModelId,
+          model: apiModelId,
           messages: ollamaMessages,
           stream: true,
           tools,
           ...(shouldThink ? { think: true } : {}),
         });
       } catch (innerError) {
-        if (shouldThink && this.isThinkingNotSupportedError(innerError)) {
-          this.thinkingModels.delete(runtimeModelId);
-          this.nonThinkingModels.add(runtimeModelId);
+        if (shouldThink && (this.isThinkingNotSupportedError(innerError) || this.isThinkingServerError(innerError))) {
+          this.thinkingModels.delete(apiModelId);
+          this.nonThinkingModels.add(apiModelId);
+          try {
+            response = await perRequestClient.chat({
+              model: apiModelId,
+              messages: ollamaMessages,
+              stream: true,
+              tools,
+            });
+          } catch (retryError) {
+            if (tools && this.isThinkingServerError(retryError)) {
+              response = await perRequestClient.chat({
+                model: apiModelId,
+                messages: ollamaMessages,
+                stream: true,
+              });
+            } else {
+              throw retryError;
+            }
+          }
+        } else if (tools && this.isThinkingServerError(innerError)) {
           response = await perRequestClient.chat({
-            model: runtimeModelId,
+            model: apiModelId,
             messages: ollamaMessages,
             stream: true,
-            tools,
+            ...(shouldThink ? { think: true } : {}),
           });
         } else {
           throw innerError;

@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { promises as fsPromises } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { ChatResponse, Ollama } from 'ollama';
+import { Ollama, type ChatResponse } from 'ollama';
 import * as vscode from 'vscode';
 import { getOllamaClient, testConnection } from './client.js';
 import { OllamaInlineCompletionProvider } from './completions.js';
@@ -17,6 +17,14 @@ let builtInOllamaConflictPromptInProgress = false;
 
 function toRuntimeModelId(modelId: string): string {
   return modelId.startsWith(PROVIDER_MODEL_ID_PREFIX) ? modelId.slice(PROVIDER_MODEL_ID_PREFIX.length) : modelId;
+}
+
+function isCloudRuntimeModelId(modelId: string): boolean {
+  return /:cloud$/i.test(modelId) || /:[^:\s]+-cloud$/i.test(modelId);
+}
+
+function stripCloudSuffix(modelId: string): string {
+  return modelId.replace(/:cloud$/i, '').replace(/:[^:\s]+-cloud$/i, match => match.replace(/-cloud$/i, ''));
 }
 
 function isSelectedAction(selection: unknown, actionLabel: string): boolean {
@@ -235,6 +243,8 @@ export async function handleChatRequest(
   token: vscode.CancellationToken,
   client?: Ollama,
   outputChannel?: DiagnosticsLogger,
+  cloudClientFactory?: () => Promise<Ollama | undefined>,
+  noModelsMessage?: string,
 ): Promise<void> {
   const messages: vscode.LanguageModelChatMessage[] = [];
 
@@ -267,7 +277,7 @@ export async function handleChatRequest(
       } else {
         const ourModels = await vscode.lm.selectChatModels({ vendor: LANGUAGE_MODEL_VENDOR });
         if (!ourModels.length) {
-          stream.markdown('No Ollama models available. Pull a model first using the Ollama sidebar.');
+          stream.markdown(noModelsMessage ?? 'No Ollama models available. Pull a model first using the Ollama sidebar.');
           return;
         }
         modelId = toRuntimeModelId(ourModels[0].id);
@@ -275,6 +285,19 @@ export async function handleChatRequest(
     }
 
     try {
+      let activeClient = client;
+      if (cloudClientFactory && isCloudRuntimeModelId(modelId)) {
+        const cloudClient = await cloudClientFactory();
+        if (cloudClient) {
+          activeClient = cloudClient;
+          outputChannel?.info(`[Ollama] Routing cloud chat model via Cloud API: ${modelId}`);
+        } else {
+          outputChannel?.warn(
+            `[Ollama] Cloud model selected but no cloud API key found; falling back to configured host for ${modelId}`,
+          );
+        }
+      }
+
       // Convert VS Code messages to the plain Ollama format expected by the client.
       const ollamaMessages = messages.map(msg => ({
         role: (msg.role === vscode.LanguageModelChatMessageRole.User ? 'user' : 'assistant') as 'user' | 'assistant',
@@ -284,14 +307,15 @@ export async function handleChatRequest(
           .join(''),
       }));
 
-      const shouldThinkInitial = isThinkingModelId(modelId);
+      const apiModelId = stripCloudSuffix(modelId);
+      const shouldThinkInitial = isThinkingModelId(apiModelId);
 
       let shouldThink = shouldThinkInitial;
       let response: AsyncIterable<ChatResponse>;
 
       try {
-        response = await client.chat({
-          model: modelId,
+        response = await activeClient.chat({
+          model: apiModelId,
           messages: ollamaMessages,
           stream: true,
           ...(shouldThink ? { think: true } : {}),
@@ -303,8 +327,8 @@ export async function handleChatRequest(
           chatError.name === 'ResponseError' &&
           chatError.message.toLowerCase().includes('does not support thinking')
         ) {
-          response = await client.chat({
-            model: modelId,
+          response = await activeClient.chat({
+            model: apiModelId,
             messages: ollamaMessages,
             stream: true,
           });
@@ -365,7 +389,7 @@ export async function handleChatRequest(
   } else {
     const models = await vscode.lm.selectChatModels({ vendor: LANGUAGE_MODEL_VENDOR });
     if (!models.length) {
-      stream.markdown('No Ollama models available. Pull a model first using the Ollama sidebar.');
+      stream.markdown(noModelsMessage ?? 'No Ollama models available. Pull a model first using the Ollama sidebar.');
       return;
     }
     model = models[0];
@@ -574,8 +598,27 @@ export async function activate(context: vscode.ExtensionContext) {
     stream: vscode.ChatResponseStream,
     token: vscode.CancellationToken,
   ): Promise<void> => {
+    const cloudApiKey = (await context.secrets.get('ollama-cloud-api-key'))?.trim();
+    const noModelsMessage = cloudApiKey
+      ? 'No Ollama models available. Pull a model first using the Ollama sidebar.'
+      : 'No Ollama models available. Pull a local model or add your Ollama Cloud API key (Ollama: Manage Cloud API Key) to see cloud models.';
+
+    const getCloudClient = async (): Promise<Ollama | undefined> => {
+      const cloudApiKey = (await context.secrets.get('ollama-cloud-api-key'))?.trim();
+      const fallbackToken = (await context.secrets.get('ollama-auth-token'))?.trim();
+      const tokenValue = cloudApiKey || fallbackToken;
+      if (!tokenValue) {
+        return undefined;
+      }
+
+      return new Ollama({
+        host: 'https://ollama.com',
+        headers: { Authorization: `Bearer ${tokenValue}` },
+      });
+    };
+
     // Pass the Ollama client so the handler streams directly — no VS Code IPC overhead.
-    await handleChatRequest(request, chatContext, stream, token, client, diagnostics);
+    await handleChatRequest(request, chatContext, stream, token, client, diagnostics, getCloudClient, noModelsMessage);
   };
 
   const participant = setupChatParticipant(context, participantHandler);

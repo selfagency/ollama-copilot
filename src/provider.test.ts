@@ -11,6 +11,7 @@ import { formatModelName, isThinkingModelId, OllamaChatModelProvider } from './p
 
 vi.mock('./client.js', () => ({
   getContextLengthOverride: vi.fn(() => 0),
+  getCloudOllamaClient: vi.fn(),
   getOllamaClient: vi.fn(),
 }));
 
@@ -315,6 +316,142 @@ describe('OllamaChatModelProvider model detection', () => {
     const models = await provider.provideLanguageModelChatInformation({ silent: true }, {} as any);
     expect(models).toBeDefined();
     expect(models[0]?.capabilities).toBeDefined();
+  });
+
+  it('includes cloud models in picker when cloud API key is present', async () => {
+    const { getCloudOllamaClient } = await import('./client.js');
+
+    const list = vi.fn().mockResolvedValue({ models: [{ name: 'llama3.2:latest' }] });
+    const show = vi.fn().mockResolvedValue({ template: '', details: { families: [] } });
+    const cloudList = vi.fn().mockResolvedValue({ models: [{ name: 'kimi-k2-thinking:cloud' }, { name: 'gpt-oss:120b' }] });
+    const cloudShow = vi.fn().mockResolvedValue({ template: '', details: { families: [] } });
+
+    vi.mocked(getCloudOllamaClient).mockResolvedValue({ list: cloudList, show: cloudShow } as any);
+
+    const provider = new OllamaChatModelProvider(
+      {
+        secrets: {
+          get: vi.fn(async (key: string) => (key === 'ollama-cloud-api-key' ? 'cloud-key' : undefined)),
+          store: vi.fn(),
+          delete: vi.fn(),
+        },
+      } as any,
+      { list, show } as any,
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn(), exception: vi.fn() } as any,
+    );
+
+    const models = await provider.provideLanguageModelChatInformation({ silent: true }, {} as any);
+    const ids = models.map(m => m.id);
+    expect(ids).toContain('ollama:llama3.2:latest');
+    expect(ids).toContain('ollama:kimi-k2-thinking:cloud');
+    expect(ids).toContain('ollama:gpt-oss:120b:cloud');
+    const cloudModel = models.find(m => m.id === 'ollama:kimi-k2-thinking:cloud');
+    expect(cloudModel?.name).toContain('☁');
+    expect(cloudModel?.detail).toBe('🦙 Ollama');
+    const nonTaggedCloudModel = models.find(m => m.id === 'ollama:gpt-oss:120b:cloud');
+    expect(nonTaggedCloudModel?.name).toContain('☁');
+    expect(nonTaggedCloudModel?.detail).toBe('🦙 Ollama');
+    expect(cloudList).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not include cloud models when cloud API key is missing', async () => {
+    const { getCloudOllamaClient } = await import('./client.js');
+
+    const list = vi.fn().mockResolvedValue({ models: [{ name: 'llama3.2:latest' }] });
+    const show = vi.fn().mockResolvedValue({ template: '', details: { families: [] } });
+
+    vi.mocked(getCloudOllamaClient).mockResolvedValue({
+      list: vi.fn().mockResolvedValue({ models: [{ name: 'kimi-k2-thinking:cloud' }] }),
+      show: vi.fn().mockResolvedValue({ template: '', details: { families: [] } }),
+    } as any);
+
+    const provider = new OllamaChatModelProvider(
+      {
+        secrets: {
+          get: vi.fn().mockResolvedValue(undefined),
+          store: vi.fn(),
+          delete: vi.fn(),
+        },
+      } as any,
+      { list, show } as any,
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn(), exception: vi.fn() } as any,
+    );
+
+    const models = await provider.provideLanguageModelChatInformation({ silent: true }, {} as any);
+    const ids = models.map(m => m.id);
+    expect(ids).toContain('ollama:llama3.2:latest');
+    expect(ids).not.toContain('ollama:kimi-k2-thinking:cloud');
+  });
+
+  it('uses cloud show metadata for non-tagged cloud model capabilities', async () => {
+    const { getCloudOllamaClient } = await import('./client.js');
+
+    const list = vi.fn().mockResolvedValue({ models: [{ name: 'llama3.2:latest' }] });
+    const show = vi.fn().mockImplementation(async ({ model }: { model: string }) => {
+      if (model === 'gpt-oss:120b') {
+        throw new Error('local show unavailable for cloud-only model');
+      }
+      return { template: '', details: { families: [] } };
+    });
+
+    const cloudList = vi.fn().mockResolvedValue({ models: [{ name: 'gpt-oss:120b' }] });
+    const cloudShow = vi.fn().mockResolvedValue({
+      template: '',
+      details: { families: [] },
+      capabilities: ['completion', 'vision', 'tools'],
+    });
+
+    vi.mocked(getCloudOllamaClient).mockResolvedValue({ list: cloudList, show: cloudShow } as any);
+
+    const provider = new OllamaChatModelProvider(
+      {
+        secrets: {
+          get: vi.fn(async (key: string) => (key === 'ollama-cloud-api-key' ? 'cloud-key' : undefined)),
+          store: vi.fn(),
+          delete: vi.fn(),
+        },
+      } as any,
+      { list, show } as any,
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn(), exception: vi.fn() } as any,
+    );
+
+    const models = await provider.provideLanguageModelChatInformation({ silent: true }, {} as any);
+    const gptOss = models.find(m => m.id === 'ollama:gpt-oss:120b:cloud');
+    expect(gptOss).toBeDefined();
+    expect(gptOss?.capabilities?.imageInput).toBe(true);
+    expect(gptOss?.capabilities?.toolCalling).toBe(true);
+    expect(cloudShow).toHaveBeenCalledWith({ model: 'gpt-oss:120b' });
+  });
+
+  it('deduplicates cloud alias pairs in picker and keeps cloud badge', async () => {
+    const { getCloudOllamaClient } = await import('./client.js');
+
+    const list = vi.fn().mockResolvedValue({ models: [{ name: 'kimi-k2-thinking:cloud' }] });
+    const show = vi.fn().mockResolvedValue({ template: '', details: { families: [] } });
+
+    const cloudList = vi.fn().mockResolvedValue({ models: [{ name: 'kimi-k2-thinking' }] });
+    const cloudShow = vi.fn().mockResolvedValue({ template: '', details: { families: [] }, capabilities: ['tools'] });
+
+    vi.mocked(getCloudOllamaClient).mockResolvedValue({ list: cloudList, show: cloudShow } as any);
+
+    const provider = new OllamaChatModelProvider(
+      {
+        secrets: {
+          get: vi.fn(async (key: string) => (key === 'ollama-cloud-api-key' ? 'cloud-key' : undefined)),
+          store: vi.fn(),
+          delete: vi.fn(),
+        },
+      } as any,
+      { list, show } as any,
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn(), exception: vi.fn() } as any,
+    );
+
+    const models = await provider.provideLanguageModelChatInformation({ silent: true }, {} as any);
+    const kimiMatches = models.filter(m => m.id.includes('kimi-k2-thinking'));
+    expect(kimiMatches).toHaveLength(1);
+    expect(kimiMatches[0]?.id).toBe('ollama:kimi-k2-thinking:cloud');
+    expect(kimiMatches[0]?.name).toContain('☁');
+    expect(kimiMatches[0]?.detail).toBe('🦙 Ollama');
   });
 });
 
@@ -884,6 +1021,64 @@ describe('OllamaChatModelProvider chat response', () => {
     expect(allValues.every((v: string) => !v.startsWith('Error:'))).toBe(true);
   });
 
+  it('retries without think when model returns ResponseError 500 Internal Server Error', async () => {
+    const internalError = Object.assign(new Error('{"StatusCode":500,"Status":"500 Internal Server Error","error":"Internal Server Error"}'), {
+      name: 'ResponseError',
+      status_code: 500,
+    });
+
+    const chat = vi
+      .fn()
+      .mockRejectedValueOnce(internalError)
+      .mockResolvedValueOnce(
+        (async function* () {
+          yield { message: { content: 'Recovered without think.' }, done: true };
+        })(),
+      );
+
+    vi.mocked(getOllamaClient).mockResolvedValue({ chat, abort: vi.fn() } as any);
+
+    const provider = new OllamaChatModelProvider(
+      { secrets: { get: vi.fn(), store: vi.fn(), delete: vi.fn() } } as any,
+      { list: vi.fn(), show: vi.fn() } as any,
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn(), exception: vi.fn() } as any,
+    );
+
+    const progress = { report: vi.fn() };
+    const token = { isCancellationRequested: false };
+
+    const model = {
+      id: 'cogito:latest',
+      name: 'Cogito Latest',
+      family: '🦙 Ollama',
+      version: '1.0.0',
+      maxInputTokens: 100,
+      maxOutputTokens: 100,
+      capabilities: { imageInput: false, toolCalling: true },
+    };
+
+    const message = {
+      role: LanguageModelChatMessageRole.User,
+      name: undefined,
+      content: [new LanguageModelTextPart('hi')],
+    };
+
+    await provider.provideLanguageModelChatResponse(
+      model as any,
+      [message as any],
+      { tools: [], toolMode: 'auto' } as any,
+      progress as any,
+      token as any,
+    );
+
+    expect(chat).toHaveBeenCalledTimes(2);
+    expect(chat.mock.calls[0]?.[0]?.think).toBe(true);
+    expect(chat.mock.calls[1]?.[0]?.think).toBeUndefined();
+    const allValues = progress.report.mock.calls.map((c: any[]) => c[0]?.value ?? '');
+    expect(allValues.some((v: string) => v.includes('Recovered without think.'))).toBe(true);
+    expect(allValues.every((v: string) => !v.startsWith('Error:'))).toBe(true);
+  });
+
   it('does not retry again on second call when model is in nonThinkingModels', async () => {
     const thinkingError = Object.assign(new Error('"cogito:latest" does not support thinking'), {
       name: 'ResponseError',
@@ -954,6 +1149,185 @@ describe('OllamaChatModelProvider chat response', () => {
     // Total: 3 calls (1 failed + 1 retry + 1 second request without think)
     expect(chat).toHaveBeenCalledTimes(3);
     expect(chat.mock.calls[2]?.[0]?.think).toBeUndefined();
+  });
+
+  it('retries without tools when chat returns ResponseError 500', async () => {
+    const internalError = Object.assign(new Error('{"StatusCode":500,"Status":"500 Internal Server Error","error":"Internal Server Error"}'), {
+      name: 'ResponseError',
+      status_code: 500,
+    });
+
+    const chat = vi
+      .fn()
+      .mockRejectedValueOnce(internalError)
+      .mockResolvedValueOnce(
+        (async function* () {
+          yield { message: { content: 'Recovered without tools.' }, done: true };
+        })(),
+      );
+
+    vi.mocked(getOllamaClient).mockResolvedValue({ chat, abort: vi.fn() } as any);
+
+    const provider = new OllamaChatModelProvider(
+      { secrets: { get: vi.fn(), store: vi.fn(), delete: vi.fn() } } as any,
+      { list: vi.fn(), show: vi.fn() } as any,
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn(), exception: vi.fn() } as any,
+    );
+
+    const progress = { report: vi.fn() };
+    const token = { isCancellationRequested: false };
+
+    const model = {
+      id: 'llama3.2:latest',
+      name: 'Llama 3.2',
+      family: '🦙 Ollama',
+      version: '1.0.0',
+      maxInputTokens: 100,
+      maxOutputTokens: 100,
+      capabilities: { imageInput: false, toolCalling: true },
+    };
+
+    const message = {
+      role: LanguageModelChatMessageRole.User,
+      name: undefined,
+      content: [new LanguageModelTextPart('hi')],
+    };
+
+    const toolDef = {
+      name: 'get_weather',
+      description: 'Get weather info',
+      inputSchema: { type: 'object', properties: {} },
+    };
+
+    // Mark this model as native tool-calling so the first request includes tools.
+    (provider as any).nativeToolCallingByModelId.set('llama3.2:latest', true);
+
+    await provider.provideLanguageModelChatResponse(
+      model as any,
+      [message as any],
+      { tools: [toolDef], toolMode: 'auto' } as any,
+      progress as any,
+      token as any,
+    );
+
+    expect(chat).toHaveBeenCalledTimes(2);
+    expect(chat.mock.calls[0]?.[0]?.tools).toBeDefined();
+    expect(chat.mock.calls[1]?.[0]?.tools).toBeUndefined();
+    const allValues = progress.report.mock.calls.map((c: any[]) => c[0]?.value ?? '');
+    expect(allValues.some((v: string) => v.includes('Recovered without tools.'))).toBe(true);
+    expect(allValues.every((v: string) => !v.startsWith('Error:'))).toBe(true);
+  });
+
+  it('routes cloud-tagged provider chat requests through cloud client when available', async () => {
+    const { getCloudOllamaClient } = await import('./client.js');
+
+    const localChat = vi.fn().mockResolvedValue(
+      (async function* () {
+        yield { message: { content: 'local' }, done: true };
+      })(),
+    );
+    const cloudChat = vi.fn().mockResolvedValue(
+      (async function* () {
+        yield { message: { content: 'cloud route ok' }, done: true };
+      })(),
+    );
+
+    vi.mocked(getCloudOllamaClient).mockResolvedValue({ chat: cloudChat, abort: vi.fn() } as any);
+    vi.mocked(getOllamaClient).mockResolvedValue({ chat: localChat, abort: vi.fn() } as any);
+
+    const provider = new OllamaChatModelProvider(
+      { secrets: { get: vi.fn(), store: vi.fn(), delete: vi.fn() } } as any,
+      { list: vi.fn(), show: vi.fn() } as any,
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn(), exception: vi.fn() } as any,
+    );
+
+    const progress = { report: vi.fn() };
+    const token = { isCancellationRequested: false };
+
+    const model = {
+      id: 'ollama:kimi-k2-thinking:cloud',
+      name: 'Kimi K2 Thinking:cloud',
+      family: '🦙 Ollama',
+      version: '1.0.0',
+      maxInputTokens: 100,
+      maxOutputTokens: 100,
+      capabilities: { imageInput: false, toolCalling: true },
+    };
+
+    const message = {
+      role: LanguageModelChatMessageRole.User,
+      name: undefined,
+      content: [new LanguageModelTextPart('hi')],
+    };
+
+    await provider.provideLanguageModelChatResponse(
+      model as any,
+      [message as any],
+      { tools: [], toolMode: 'auto' } as any,
+      progress as any,
+      token as any,
+    );
+
+    expect(cloudChat).toHaveBeenCalledTimes(1);
+    expect(localChat).not.toHaveBeenCalled();
+    const allValues = progress.report.mock.calls.map((c: any[]) => c[0]?.value ?? '');
+    expect(allValues.some((v: string) => v.includes('cloud route ok'))).toBe(true);
+  });
+
+  it('routes cloud-marked provider chat requests through cloud client', async () => {
+    const { getCloudOllamaClient } = await import('./client.js');
+
+    const localChat = vi.fn().mockResolvedValue(
+      (async function* () {
+        yield { message: { content: 'local' }, done: true };
+      })(),
+    );
+    const cloudChat = vi.fn().mockResolvedValue(
+      (async function* () {
+        yield { message: { content: 'cloud route ok' }, done: true };
+      })(),
+    );
+
+    vi.mocked(getCloudOllamaClient).mockResolvedValue({ chat: cloudChat, abort: vi.fn() } as any);
+    vi.mocked(getOllamaClient).mockResolvedValue({ chat: localChat, abort: vi.fn() } as any);
+
+    const provider = new OllamaChatModelProvider(
+      { secrets: { get: vi.fn(), store: vi.fn(), delete: vi.fn() } } as any,
+      { list: vi.fn(), show: vi.fn() } as any,
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn(), exception: vi.fn() } as any,
+    );
+
+    const progress = { report: vi.fn() };
+    const token = { isCancellationRequested: false };
+
+    const model = {
+      id: 'ollama:kimi-k2-thinking:cloud',
+      name: 'Kimi K2 Thinking ☁',
+      family: '🦙 Ollama',
+      version: '1.0.0',
+      maxInputTokens: 100,
+      maxOutputTokens: 100,
+      capabilities: { imageInput: false, toolCalling: true },
+    };
+
+    const message = {
+      role: LanguageModelChatMessageRole.User,
+      name: undefined,
+      content: [new LanguageModelTextPart('hi')],
+    };
+
+    await provider.provideLanguageModelChatResponse(
+      model as any,
+      [message as any],
+      { tools: [], toolMode: 'auto' } as any,
+      progress as any,
+      token as any,
+    );
+
+    expect(cloudChat).toHaveBeenCalledTimes(1);
+    expect(localChat).not.toHaveBeenCalled();
+    const allValues = progress.report.mock.calls.map((c: any[]) => c[0]?.value ?? '');
+    expect(allValues.some((v: string) => v.includes('cloud route ok'))).toBe(true);
   });
 });
 

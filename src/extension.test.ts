@@ -1083,6 +1083,9 @@ describe('handleChatRequest direct Ollama path (thinking + tools)', () => {
       },
       lm: { selectChatModels: vi.fn().mockResolvedValue([]) },
       workspace: { getConfiguration: vi.fn().mockReturnValue({ get: vi.fn() }) },
+      Uri: { joinPath: vi.fn((_base: any, p: string) => ({ fsPath: p })) },
+      chat: { createChatParticipant: vi.fn(() => ({ iconPath: undefined, dispose: vi.fn() })) },
+      commands: { registerCommand: vi.fn(() => ({ dispose: vi.fn() })), executeCommand: vi.fn() },
     }));
 
     const ext = await import('./extension.js');
@@ -1248,6 +1251,230 @@ describe('handleChatRequest direct Ollama path (thinking + tools)', () => {
 
     const allCalls = mockMarkdown.mock.calls.map((c: any[]) => c[0] as string);
     expect(allCalls.some((v: string) => v.includes('get_weather'))).toBe(true);
+  });
+
+  it('routes :cloud model chats through cloud client when available', async () => {
+    vi.doMock('./client.js', () => ({ getOllamaClient: vi.fn(), testConnection: vi.fn() }));
+    vi.doMock('./diagnostics.js', () => ({
+      createDiagnosticsLogger: () => ({
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+        exception: vi.fn(),
+      }),
+      getConfiguredLogLevel: vi.fn(() => 'info'),
+    }));
+    vi.doMock('./provider.js', () => ({
+      OllamaChatModelProvider: class {
+        setAuthToken = vi.fn();
+      },
+      isThinkingModelId: () => false,
+    }));
+    vi.doMock('./sidebar.js', () => ({ registerSidebar: vi.fn() }));
+    vi.doMock('./modelfiles.js', () => ({ registerModelfileManager: vi.fn() }));
+    vi.doMock('vscode', () => ({
+      LanguageModelTextPart: class {
+        constructor(public value: string) {}
+      },
+      LanguageModelChatMessageRole: { User: 1, Assistant: 2 },
+      ChatRequestTurn: class {},
+      ChatResponseTurn: class {},
+      ChatResponseMarkdownPart: class {},
+      LanguageModelChatMessage: {
+        User: (content: string) => ({ role: 1, content }),
+        Assistant: (content: string) => ({ role: 2, content }),
+      },
+      lm: { selectChatModels: vi.fn().mockResolvedValue([]) },
+      workspace: { getConfiguration: vi.fn().mockReturnValue({ get: vi.fn() }) },
+      Uri: { joinPath: vi.fn((_base: any, p: string) => ({ fsPath: p })) },
+      chat: { createChatParticipant: vi.fn(() => ({ iconPath: undefined, dispose: vi.fn() })) },
+      commands: { registerCommand: vi.fn(() => ({ dispose: vi.fn() })), executeCommand: vi.fn() },
+    }));
+
+    const ext = await import('./extension.js');
+
+    const localChat = vi.fn().mockResolvedValue(
+      (async function* () {
+        yield { message: { content: 'local' }, done: true };
+      })(),
+    );
+    const cloudChat = vi.fn().mockResolvedValue(
+      (async function* () {
+        yield { message: { content: 'cloud' }, done: true };
+      })(),
+    );
+
+    const localClient = { chat: localChat };
+    const cloudClient = { chat: cloudChat };
+
+    const stream = { markdown: vi.fn() };
+    const token = { isCancellationRequested: false };
+    const request = {
+      prompt: 'hello',
+      model: { vendor: 'selfagency-ollama', id: 'kimi-k2-thinking:cloud' },
+    };
+
+    await ext.handleChatRequest(
+      request as any,
+      { history: [] } as any,
+      stream as any,
+      token as any,
+      localClient as any,
+      undefined,
+      async () => cloudClient as any,
+    );
+
+    expect(cloudChat).toHaveBeenCalledTimes(1);
+    expect(localChat).not.toHaveBeenCalled();
+    expect(cloudChat.mock.calls[0]?.[0]?.model).toBe('kimi-k2-thinking');
+  });
+
+  it('falls back to configured client for :cloud model when cloud client is unavailable', async () => {
+    vi.doMock('./client.js', () => ({ getOllamaClient: vi.fn(), testConnection: vi.fn() }));
+    vi.doMock('./diagnostics.js', () => ({
+      createDiagnosticsLogger: () => ({
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+        exception: vi.fn(),
+      }),
+      getConfiguredLogLevel: vi.fn(() => 'info'),
+    }));
+    vi.doMock('./provider.js', () => ({
+      OllamaChatModelProvider: class {
+        setAuthToken = vi.fn();
+      },
+      isThinkingModelId: () => false,
+    }));
+    vi.doMock('./sidebar.js', () => ({ registerSidebar: vi.fn() }));
+    vi.doMock('./modelfiles.js', () => ({ registerModelfileManager: vi.fn() }));
+    vi.doMock('vscode', () => ({
+      LanguageModelTextPart: class {
+        constructor(public value: string) {}
+      },
+      LanguageModelChatMessageRole: { User: 1, Assistant: 2 },
+      ChatRequestTurn: class {},
+      ChatResponseTurn: class {},
+      ChatResponseMarkdownPart: class {},
+      LanguageModelChatMessage: {
+        User: (content: string) => ({ role: 1, content }),
+        Assistant: (content: string) => ({ role: 2, content }),
+      },
+      lm: { selectChatModels: vi.fn().mockResolvedValue([]) },
+      workspace: { getConfiguration: vi.fn().mockReturnValue({ get: vi.fn() }) },
+      Uri: { joinPath: vi.fn((_base: any, p: string) => ({ fsPath: p })) },
+      chat: { createChatParticipant: vi.fn(() => ({ iconPath: undefined, dispose: vi.fn() })) },
+      commands: { registerCommand: vi.fn(() => ({ dispose: vi.fn() })), executeCommand: vi.fn() },
+    }));
+
+    const ext = await import('./extension.js');
+
+    const localChat = vi.fn().mockResolvedValue(
+      (async function* () {
+        yield { message: { content: 'local fallback' }, done: true };
+      })(),
+    );
+
+    const localClient = { chat: localChat };
+
+    const stream = { markdown: vi.fn() };
+    const token = { isCancellationRequested: false };
+    const request = {
+      prompt: 'hello',
+      model: { vendor: 'selfagency-ollama', id: 'kimi-k2-thinking:cloud' },
+    };
+
+    await ext.handleChatRequest(
+      request as any,
+      { history: [] } as any,
+      stream as any,
+      token as any,
+      localClient as any,
+      undefined,
+      async () => undefined,
+    );
+
+    expect(localChat).toHaveBeenCalledTimes(1);
+    expect(localChat.mock.calls[0]?.[0]?.model).toBe('kimi-k2-thinking');
+  });
+
+  it('routes cloud-marked model chats through cloud client', async () => {
+    vi.doMock('./client.js', () => ({ getOllamaClient: vi.fn(), testConnection: vi.fn() }));
+    vi.doMock('./diagnostics.js', () => ({
+      createDiagnosticsLogger: () => ({
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+        exception: vi.fn(),
+      }),
+      getConfiguredLogLevel: vi.fn(() => 'info'),
+    }));
+    vi.doMock('./provider.js', () => ({
+      OllamaChatModelProvider: class {
+        setAuthToken = vi.fn();
+      },
+      isThinkingModelId: () => false,
+    }));
+    vi.doMock('./sidebar.js', () => ({ registerSidebar: vi.fn() }));
+    vi.doMock('./modelfiles.js', () => ({ registerModelfileManager: vi.fn() }));
+    vi.doMock('vscode', () => ({
+      LanguageModelTextPart: class {
+        constructor(public value: string) {}
+      },
+      LanguageModelChatMessageRole: { User: 1, Assistant: 2 },
+      ChatRequestTurn: class {},
+      ChatResponseTurn: class {},
+      ChatResponseMarkdownPart: class {},
+      LanguageModelChatMessage: {
+        User: (content: string) => ({ role: 1, content }),
+        Assistant: (content: string) => ({ role: 2, content }),
+      },
+      lm: { selectChatModels: vi.fn().mockResolvedValue([]) },
+      workspace: { getConfiguration: vi.fn().mockReturnValue({ get: vi.fn() }) },
+      Uri: { joinPath: vi.fn((_base: any, p: string) => ({ fsPath: p })) },
+      chat: { createChatParticipant: vi.fn(() => ({ iconPath: undefined, dispose: vi.fn() })) },
+      commands: { registerCommand: vi.fn(() => ({ dispose: vi.fn() })), executeCommand: vi.fn() },
+    }));
+
+    const ext = await import('./extension.js');
+
+    const localChat = vi.fn().mockResolvedValue(
+      (async function* () {
+        yield { message: { content: 'local' }, done: true };
+      })(),
+    );
+    const cloudChat = vi.fn().mockResolvedValue(
+      (async function* () {
+        yield { message: { content: 'cloud' }, done: true };
+      })(),
+    );
+
+    const localClient = { chat: localChat };
+    const cloudClient = { chat: cloudChat };
+
+    const stream = { markdown: vi.fn() };
+    const token = { isCancellationRequested: false };
+    const request = {
+      prompt: 'hello',
+      model: { vendor: 'selfagency-ollama', id: 'kimi-k2-thinking:cloud', name: 'Kimi K2 Thinking ☁' },
+    };
+
+    await ext.handleChatRequest(
+      request as any,
+      { history: [] } as any,
+      stream as any,
+      token as any,
+      localClient as any,
+      undefined,
+      async () => cloudClient as any,
+    );
+
+    expect(cloudChat).toHaveBeenCalledTimes(1);
+    expect(localChat).not.toHaveBeenCalled();
+    expect(cloudChat.mock.calls[0]?.[0]?.model).toBe('kimi-k2-thinking');
   });
 });
 
