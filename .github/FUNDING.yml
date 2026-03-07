@@ -1,6 +1,6 @@
 # These are supported funding model platforms
 
-github: selfagency
+github: [selfagency]
 patreon: # Replace with a single Patreon username
 open_collective: selfagencyllc
 ko_fi: self_agency
