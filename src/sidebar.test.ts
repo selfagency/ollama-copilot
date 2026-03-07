@@ -238,18 +238,14 @@ describe('LocalModelsProvider', () => {
 
   it('uses play-circle icon for running models', () => {
     const localRunning = new ModelTreeItem('llama2:latest', 'local-running', 3826087936, 90_000);
-    const cloudRunning = new ModelTreeItem('cloud/llama2:latest', 'cloud-running', undefined, 90_000);
 
     expect((localRunning.iconPath as { id: string }).id).toBe('play-circle');
-    expect((cloudRunning.iconPath as { id: string }).id).toBe('play-circle');
   });
 
   it('uses stop-circle icon for stopped models', () => {
     const localStopped = new ModelTreeItem('mistral:latest', 'local-stopped', 4109738016);
-    const cloudStopped = new ModelTreeItem('cloud/mistral:latest', 'cloud-stopped');
 
     expect((localStopped.iconPath as { id: string }).id).toBe('stop-circle');
-    expect((cloudStopped.iconPath as { id: string }).id).toBe('stop-circle');
   });
 
   it('returns tree item unchanged', () => {
@@ -1073,7 +1069,7 @@ describe('Extracted command handlers', () => {
     const { handleOpenCloudModel, ModelTreeItem } = await import('./sidebar.js');
 
     // Should not throw
-    const item = new ModelTreeItem('claude', 'cloud-stopped');
+    const item = new ModelTreeItem('claude', 'cloud-model');
     handleOpenCloudModel(item);
 
     expect(handleOpenCloudModel).toBeDefined();
@@ -1106,76 +1102,18 @@ describe('Extracted command handlers', () => {
     expect(mockProvider.startModel).not.toHaveBeenCalled();
   });
 
-  it('handleStopModel handles cloud-running models', async () => {
+  it('handleStopModel ignores cloud models', async () => {
     const { handleStopModel, ModelTreeItem } = await import('./sidebar.js');
 
     const mockProvider = {
       stopModel: vi.fn(),
     } as any;
 
-    const item = new ModelTreeItem('test-model', 'cloud-running');
+    const item = new ModelTreeItem('test-model', 'cloud-model');
 
     handleStopModel(item, mockProvider);
 
-    expect(mockProvider.stopModel).toHaveBeenCalledWith('test-model');
-  });
-
-  it('handleStartCloudModel starts cloud-stopped models with explicit tag', async () => {
-    const { handleStartCloudModel, ModelTreeItem } = await import('./sidebar.js');
-
-    const mockProvider = {
-      startModel: vi.fn(),
-    } as any;
-
-    const item = new ModelTreeItem('test-model:cloud', 'cloud-stopped');
-
-    await handleStartCloudModel(item, mockProvider);
-
-    expect(mockProvider.startModel).toHaveBeenCalledWith('test-model:cloud');
-  });
-
-  it('handleStartCloudModel resolves base name to :cloud / :-cloud tag', async () => {
-    const { handleStartCloudModel, ModelTreeItem } = await import('./sidebar.js');
-
-    const mockProvider = {
-      startModel: vi.fn(),
-    } as any;
-
-    const mockCloudProvider = {
-      resolveRunnableCloudModelName: vi.fn().mockResolvedValue('cogito-2.1:671b-cloud'),
-      markModelWarm: vi.fn(),
-      refresh: vi.fn(),
-    } as any;
-
-    const item = new ModelTreeItem('cogito-2.1', 'cloud-stopped');
-
-    await handleStartCloudModel(item, mockProvider, mockCloudProvider);
-
-    expect(mockCloudProvider.resolveRunnableCloudModelName).toHaveBeenCalledWith('cogito-2.1');
-    expect(mockProvider.startModel).toHaveBeenCalledWith('cogito-2.1:671b-cloud');
-    expect(mockCloudProvider.markModelWarm).toHaveBeenCalledWith('cogito-2.1');
-    expect(mockCloudProvider.refresh).toHaveBeenCalled();
-  });
-
-  it('handleStopCloudModel stops cloud-running models', async () => {
-    const { handleStopCloudModel, ModelTreeItem } = await import('./sidebar.js');
-
-    const mockProvider = {
-      stopModel: vi.fn(),
-    } as any;
-
-    const mockCloudProvider = {
-      markModelStopped: vi.fn(),
-      refresh: vi.fn(),
-    } as any;
-
-    const item = new ModelTreeItem('test-model', 'cloud-running');
-
-    await handleStopCloudModel(item, mockProvider, mockCloudProvider);
-
-    expect(mockProvider.stopModel).toHaveBeenCalledWith('test-model');
-    expect(mockCloudProvider.markModelStopped).toHaveBeenCalledWith('test-model');
-    expect(mockCloudProvider.refresh).toHaveBeenCalled();
+    expect(mockProvider.stopModel).not.toHaveBeenCalled();
   });
 
   it('handleOpenLibraryModelPage handles library-model type', async () => {

@@ -23,6 +23,27 @@ export async function getOllamaClient(context: ExtensionContext): Promise<Ollama
 }
 
 /**
+ * Get an Ollama client configured for direct cloud API usage.
+ * Prefers the dedicated cloud key and falls back to the auth token.
+ */
+export async function getCloudOllamaClient(context: ExtensionContext): Promise<Ollama | undefined> {
+  const cloudApiKey = (await context.secrets.get('ollama-cloud-api-key'))?.trim();
+  const authToken = (await context.secrets.get('ollama-auth-token'))?.trim();
+  const token = cloudApiKey || authToken;
+
+  if (!token) {
+    return undefined;
+  }
+
+  return new Ollama({
+    host: 'https://ollama.com',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+}
+
+/**
  * Model capabilities detected from Ollama model metadata
  */
 export interface ModelCapabilities {
