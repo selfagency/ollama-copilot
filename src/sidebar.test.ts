@@ -448,6 +448,30 @@ describe('LocalModelsProvider', () => {
     localProvider.dispose();
   });
 
+  it('startModel auto-pulls cloud-tagged model when not found then retries', async () => {
+    const generate = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("model 'kimi-k2-thinking:cloud' not found"))
+      .mockResolvedValueOnce(undefined);
+    const pull = vi.fn().mockResolvedValue(undefined);
+
+    const localProvider = new LocalModelsProvider(
+      {
+        list: vi.fn().mockResolvedValue({ models: [] }),
+        ps: vi.fn().mockResolvedValue({ models: [] }),
+        generate,
+        pull,
+      } as unknown as Ollama,
+      undefined,
+    );
+
+    await localProvider.startModel('kimi-k2-thinking:cloud');
+
+    expect(pull).toHaveBeenCalledWith({ model: 'kimi-k2-thinking:cloud', stream: false });
+    expect(generate).toHaveBeenCalledTimes(2);
+    localProvider.dispose();
+  });
+
   it('stopModel shows progress and polls until model is gone', async () => {
     vi.useFakeTimers();
 

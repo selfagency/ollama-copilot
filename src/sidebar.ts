@@ -491,7 +491,17 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
     try {
       this.logChannel?.debug(`[Ollama] Starting local model: ${modelName}`);
       await window.withProgress({ location: 15, title: `Starting ${modelName}...` }, async () => {
-        await this.client.generate({ model: modelName, prompt: '', stream: false, keep_alive: '10m' });
+        try {
+          await this.client.generate({ model: modelName, prompt: '', stream: false, keep_alive: '10m' });
+        } catch (error) {
+          if (this.isCloudTaggedModel(modelName) && this.isModelNotFoundError(error)) {
+            this.logChannel?.info(`[Ollama] Cloud model not found locally; pulling first: ${modelName}`);
+            await this.client.pull({ model: modelName, stream: false });
+            await this.client.generate({ model: modelName, prompt: '', stream: false, keep_alive: '10m' });
+          } else {
+            throw error;
+          }
+        }
         this.logChannel?.info(`[Ollama] Model started: ${modelName}`);
         this.refresh();
         window.showInformationMessage(`Model ${modelName} started`);
@@ -501,6 +511,16 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
       const msg = error instanceof Error ? error.message : 'Unknown error';
       window.showErrorMessage(`Failed to start model: ${msg}`);
     }
+  }
+
+  private isCloudTaggedModel(modelName: string): boolean {
+    const tag = modelName.split(':')[1] ?? '';
+    return tag === 'cloud' || tag.endsWith('-cloud');
+  }
+
+  private isModelNotFoundError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return /not found/i.test(message);
   }
 
   /**
