@@ -94,10 +94,6 @@ jobs:
       - name: Setup Ollama
         uses: ai-action/setup-ollama@v2
 
-      - name: Start Ollama server
-        run: ollama serve &
-        shell: bash
-
       - name: Wait for Ollama server
         run: |
           sleep 5
@@ -114,7 +110,7 @@ jobs:
         shell: bash
 
       - name: Pull Ollama model
-        run: ollama pull tinyllama
+        run: ollama pull llama3.2:1b
         shell: bash
 
       - name: Run integration tests
