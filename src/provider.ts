@@ -459,6 +459,9 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
       let response: AsyncIterable<ChatResponse>;
 
       try {
+        this.outputChannel.debug?.(
+          `[Ollama] Chat request: model=${runtimeModelId}, messages=${ollamaMessages?.length ?? 0}, tools=${tools?.length ?? 0}`,
+        );
         response = await perRequestClient.chat({
           model: runtimeModelId,
           messages: ollamaMessages,
@@ -466,7 +469,9 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
           tools,
           ...(shouldThink ? { think: true } : {}),
         });
+        this.outputChannel.debug?.(`[Ollama] Chat response stream started`);
       } catch (innerError) {
+        this.outputChannel.exception('[Ollama] Chat request failed', innerError);
         if (shouldThink && this.isThinkingNotSupportedError(innerError)) {
           this.thinkingModels.delete(runtimeModelId);
           this.nonThinkingModels.add(runtimeModelId);
