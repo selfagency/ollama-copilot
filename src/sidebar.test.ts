@@ -1058,7 +1058,7 @@ describe('Extracted command handlers', () => {
 
     const item = new ModelTreeItem('test-model', 'cloud-running');
 
-    handleStopCloudModel(item, mockProvider);
+    await handleStopCloudModel(item, mockProvider);
 
     expect(mockProvider.stopModel).toHaveBeenCalledWith('test-model');
   });
