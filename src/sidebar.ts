@@ -908,12 +908,6 @@ export class CloudModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
             durationMs,
           );
           item.tooltip = `Cloud model: ${model.name}`;
-
-          item.command = {
-            command: 'ollama-copilot.openCloudModel',
-            title: 'Open Model',
-            arguments: [model.name],
-          };
           return item;
         })
         .sort((a, b) => a.label.localeCompare(b.label));
@@ -1027,8 +1021,10 @@ export async function handleManageCloudApiKey(
 /**
  * Command handler: open cloud model page
  */
-export function handleOpenCloudModel(modelName: string): void {
-  void env.openExternal(Uri.parse(`https://ollama.com/library/${encodeURIComponent(modelName)}`));
+export function handleOpenCloudModel(item: ModelTreeItem): void {
+  if (item && (item.type === 'cloud-running' || item.type === 'cloud-stopped')) {
+    void env.openExternal(Uri.parse(`https://ollama.com/library/${encodeURIComponent(item.label)}`));
+  }
 }
 
 /**
@@ -1231,7 +1227,7 @@ export function registerSidebar(
     commands.registerCommand('ollama-copilot.manageCloudApiKey', async () =>
       handleManageCloudApiKey(context, cloudProvider, libraryProvider, logChannel),
     ),
-    commands.registerCommand('ollama-copilot.openCloudModel', (modelName: string) => handleOpenCloudModel(modelName)),
+    commands.registerCommand('ollama-copilot.openCloudModel', (item: ModelTreeItem) => handleOpenCloudModel(item)),
     commands.registerCommand('ollama-copilot.deleteModel', (item: ModelTreeItem) =>
       handleDeleteModel(item, localProvider),
     ),

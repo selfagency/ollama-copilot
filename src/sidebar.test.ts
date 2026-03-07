@@ -198,7 +198,7 @@ describe('LocalModelsProvider', () => {
     libraryProvider.dispose();
   });
 
-  it('uses model details command when clicking cloud model items', async () => {
+  it('does not auto-open cloud models when clicked', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -219,7 +219,7 @@ describe('LocalModelsProvider', () => {
     );
 
     const models = await cloudProvider.getChildren();
-    expect(models[0].command?.command).toBe('ollama-copilot.openCloudModel');
+    expect(models[0].command).toBeUndefined();
     cloudProvider.dispose();
   });
 
