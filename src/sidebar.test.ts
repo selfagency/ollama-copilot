@@ -841,6 +841,45 @@ describe('LocalModelsProvider', () => {
 });
 
 describe('Extracted command handlers', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.doMock('vscode', () => ({
+      TreeItem: class {
+        label: string;
+        description?: string;
+        contextValue?: string;
+        collapsibleState?: number;
+        tooltip?: string;
+        command?: unknown;
+        constructor(label: string) {
+          this.label = label;
+        }
+      },
+      ThemeIcon: class {},
+      TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
+      EventEmitter: class {
+        event = {};
+        fire = vi.fn();
+      },
+      window: {
+        showWarningMessage: vi.fn().mockResolvedValue('Delete'),
+        showInformationMessage: vi.fn(),
+        showErrorMessage: vi.fn(),
+      },
+      env: {
+        openExternal: vi.fn(),
+      },
+      Uri: {
+        parse: vi.fn((value: string) => ({ value })),
+      },
+      workspace: {
+        getConfiguration: vi.fn(() => ({ get: vi.fn() })),
+        onDidChangeConfiguration: vi.fn(() => ({ dispose: vi.fn() })),
+      },
+      ProgressLocation: { Notification: 15 },
+    }));
+  });
+
   it('handleRefreshLocalModels refreshes provider and shows message', async () => {
     const { handleRefreshLocalModels } = await import('./sidebar.js');
 
@@ -884,11 +923,33 @@ describe('Extracted command handlers', () => {
       deleteModel: vi.fn(),
     } as any;
 
-    const item = new ModelTreeItem('test-model', 'local-running', 1000);
+    const item = new ModelTreeItem('test-model', 'local-stopped', 1000);
 
     await handleDeleteModel(item, mockProvider);
 
     expect(mockProvider.deleteModel).toHaveBeenCalledWith('test-model');
+  });
+
+  it('handleDeleteModel blocks deletion of a running local model', async () => {
+    const { handleDeleteModel, ModelTreeItem } = await import('./sidebar.js');
+
+    const mockProvider = { deleteModel: vi.fn() } as any;
+    const item = new ModelTreeItem('test-model', 'local-running', 1000);
+
+    await handleDeleteModel(item, mockProvider);
+
+    expect(mockProvider.deleteModel).not.toHaveBeenCalled();
+  });
+
+  it('handleDeleteModel blocks deletion of a running cloud model', async () => {
+    const { handleDeleteModel, ModelTreeItem } = await import('./sidebar.js');
+
+    const mockProvider = { deleteModel: vi.fn() } as any;
+    const item = new ModelTreeItem('cloud-model', 'cloud-running', 1000);
+
+    await handleDeleteModel(item, mockProvider);
+
+    expect(mockProvider.deleteModel).not.toHaveBeenCalled();
   });
 
   it('handleDeleteModel does not delete when cancelled', async () => {
