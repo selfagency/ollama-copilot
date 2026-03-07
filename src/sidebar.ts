@@ -264,7 +264,7 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
 
   constructor(
     private client: Ollama,
-    private context: ExtensionContext,
+    private context?: ExtensionContext,
     private logChannel?: DiagnosticsLogger,
     private onLocalModelsChanged?: () => void,
   ) {
