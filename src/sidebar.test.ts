@@ -1951,7 +1951,6 @@ describe('LocalModelsProvider filter', () => {
 
   it('clears filter when filterText is set to empty string', async () => {
     const provider = new LocalModelsProvider(mockClient);
-    provider.filterText = 'llama';
     provider.filterText = '';
     const children = await provider.getChildren();
     const labels = children.map((c: any) => c.label);
