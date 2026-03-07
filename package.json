@@ -316,7 +316,7 @@
     "menus": {
       "view/title": [
         {
-          "command": "ollama-copilot.collapseLocalModels",
+          "command": "ollama-copilot.manageAuthToken",
           "when": "view == ollama-local-models",
           "group": "navigation@0"
         },
@@ -338,40 +338,40 @@
         {
           "command": "ollama-copilot.refreshLocalModels",
           "when": "view == ollama-local-models",
-          "group": "navigation"
+          "group": "navigation@3"
         },
         {
-          "command": "ollama-copilot.manageAuthToken",
+          "command": "ollama-copilot.collapseLocalModels",
           "when": "view == ollama-local-models",
-          "group": "navigation@9"
-        },
-        {
-          "command": "ollama-copilot.collapseLibrary",
-          "when": "view == ollama-library-models",
-          "group": "navigation@0"
+          "group": "navigation@4"
         },
         {
           "command": "ollama-copilot.filterLibraryModels",
           "when": "view == ollama-library-models && !ollama.libraryFilterActive",
-          "group": "navigation@1"
+          "group": "navigation@0"
         },
         {
           "command": "ollama-copilot.clearLibraryFilter",
           "when": "view == ollama-library-models && ollama.libraryFilterActive",
-          "group": "navigation@1"
+          "group": "navigation@0"
         },
         {
           "command": "ollama-copilot.toggleLibraryGrouping",
           "when": "view == ollama-library-models",
-          "group": "navigation@2"
+          "group": "navigation@1"
         },
         {
           "command": "ollama-copilot.refreshLibrary",
           "when": "view == ollama-library-models",
-          "group": "navigation"
+          "group": "navigation@2"
         },
         {
-          "command": "ollama-copilot.collapseCloudModels",
+          "command": "ollama-copilot.collapseLibrary",
+          "when": "view == ollama-library-models",
+          "group": "navigation@3"
+        },
+        {
+          "command": "ollama-copilot.manageCloudApiKey",
           "when": "view == ollama-cloud-models",
           "group": "navigation@0"
         },
@@ -393,27 +393,27 @@
         {
           "command": "ollama-copilot.refreshCloudModels",
           "when": "view == ollama-cloud-models",
-          "group": "navigation"
+          "group": "navigation@3"
         },
         {
-          "command": "ollama-copilot.manageCloudApiKey",
+          "command": "ollama-copilot.collapseCloudModels",
           "when": "view == ollama-cloud-models",
-          "group": "navigation@9"
-        },
-        {
-          "command": "ollama-copilot.refreshModelfiles",
-          "when": "view == ollama-modelfiles",
-          "group": "navigation"
+          "group": "navigation@4"
         },
         {
           "command": "ollama-copilot.newModelfile",
           "when": "view == ollama-modelfiles",
-          "group": "navigation@2"
+          "group": "navigation@0"
         },
         {
           "command": "ollama-copilot.openModelfilesFolder",
           "when": "view == ollama-modelfiles",
-          "group": "navigation@3"
+          "group": "navigation@1"
+        },
+        {
+          "command": "ollama-copilot.refreshModelfiles",
+          "when": "view == ollama-modelfiles",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [

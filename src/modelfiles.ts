@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
-import type { CreateRequest, Ollama } from 'ollama';
+import type { CreateRequest, Message, Ollama } from 'ollama';
 import * as vscode from 'vscode';
 import type { DiagnosticsLogger } from './diagnostics.js';
 
@@ -42,6 +42,133 @@ const PARAMETER_DOCS: Record<string, string> = {
   mirostat_tau: '`mirostat_tau` — Mirostat target entropy. Default: 5.0',
   mirostat_eta: '`mirostat_eta` — Mirostat learning rate. Default: 0.1',
 };
+
+// ---------------------------------------------------------------------------
+// Modelfile parser — extracts structured fields for the Ollama create API
+// ---------------------------------------------------------------------------
+
+interface ParsedModelfile {
+  from?: string;
+  system?: string;
+  template?: string;
+  license?: string | string[];
+  parameters?: Record<string, unknown>;
+  messages?: Message[];
+  adapters?: Record<string, string>;
+}
+
+/**
+ * Parse Modelfile content into structured fields for the Ollama create API.
+ *
+ * Supports multi-line values delimited by triple-quotes (`"""`).
+ */
+export function parseModelfile(content: string): ParsedModelfile {
+  const result: ParsedModelfile = {};
+  const parameters: Record<string, unknown> = {};
+  const messages: Message[] = [];
+  const licenses: string[] = [];
+  const lines = content.split('\n');
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    // Skip blank lines and comments
+    if (!trimmed || trimmed.startsWith('#')) {
+      i++;
+      continue;
+    }
+
+    const spaceIdx = trimmed.indexOf(' ');
+    if (spaceIdx === -1) {
+      i++;
+      continue;
+    }
+
+    const keyword = trimmed.substring(0, spaceIdx).toUpperCase();
+    let value = trimmed.substring(spaceIdx + 1).trim();
+
+    // Handle multi-line triple-quoted values
+    if (value.startsWith('"""')) {
+      const afterOpen = value.substring(3);
+      if (afterOpen.endsWith('"""') && afterOpen.length > 3) {
+        // Single-line triple-quoted: """content"""
+        value = afterOpen.substring(0, afterOpen.length - 3);
+      } else {
+        // Multi-line: collect until closing """
+        const parts = [afterOpen];
+        i++;
+        while (i < lines.length) {
+          const nextLine = lines[i];
+          if (nextLine.trim() === '"""' || nextLine.trimEnd().endsWith('"""')) {
+            const closing = nextLine.trimEnd();
+            if (closing !== '"""') {
+              parts.push(closing.substring(0, closing.length - 3));
+            }
+            break;
+          }
+          parts.push(nextLine);
+          i++;
+        }
+        value = parts.join('\n');
+      }
+    } else if (value.startsWith('"') && value.endsWith('"') && value.length >= 2) {
+      value = value.substring(1, value.length - 1);
+    }
+
+    switch (keyword) {
+      case 'FROM':
+        result.from = value;
+        break;
+      case 'SYSTEM':
+        result.system = value;
+        break;
+      case 'TEMPLATE':
+        result.template = value;
+        break;
+      case 'LICENSE':
+        licenses.push(value);
+        break;
+      case 'ADAPTER': {
+        if (!result.adapters) result.adapters = {};
+        result.adapters[value] = value;
+        break;
+      }
+      case 'PARAMETER': {
+        const paramSpaceIdx = value.indexOf(' ');
+        if (paramSpaceIdx !== -1) {
+          const paramName = value.substring(0, paramSpaceIdx);
+          const paramValue = value.substring(paramSpaceIdx + 1).trim();
+          // Try to parse as number or preserve as string
+          const numVal = Number(paramValue);
+          parameters[paramName] = Number.isFinite(numVal) ? numVal : paramValue;
+        }
+        break;
+      }
+      case 'MESSAGE': {
+        // MESSAGE role "content" or MESSAGE role content
+        const msgMatch = /^(system|user|assistant)\s+(.+)$/s.exec(value);
+        if (msgMatch) {
+          let msgContent = msgMatch[2];
+          if (msgContent.startsWith('"') && msgContent.endsWith('"')) {
+            msgContent = msgContent.substring(1, msgContent.length - 1);
+          }
+          messages.push({ role: msgMatch[1] as 'system' | 'user' | 'assistant', content: msgContent });
+        }
+        break;
+      }
+    }
+    i++;
+  }
+
+  if (Object.keys(parameters).length > 0) result.parameters = parameters;
+  if (messages.length > 0) result.messages = messages;
+  if (licenses.length === 1) result.license = licenses[0];
+  else if (licenses.length > 1) result.license = licenses;
+
+  return result;
+}
 
 // ---------------------------------------------------------------------------
 // Folder helpers
@@ -91,7 +218,6 @@ export class ModelfileItem extends vscode.TreeItem {
     this.contextValue = 'modelfile';
     this.iconPath = createThemeIcon('file-code');
     this.tooltip = uri.fsPath;
-    this.command = { command: 'vscode.open', title: 'Open Modelfile', arguments: [uri] };
   }
 }
 
@@ -244,14 +370,26 @@ export async function handleBuildModelfile(
     async progress => {
       try {
         const content = await readFile(item.uri.fsPath, 'utf8');
+        const parsed = parseModelfile(content);
 
-        // The SDK's CreateRequest type doesn't expose `modelfile` (raw content),
-        // but the Ollama REST API accepts it. We cast through unknown here.
-        const stream = await client.create({
+        if (!parsed.from) {
+          vscode.window.showErrorMessage('Modelfile is missing the required FROM directive.');
+          return;
+        }
+
+        const createRequest: CreateRequest & { stream: true } = {
           model: modelName,
-          modelfile: content,
+          from: parsed.from,
           stream: true,
-        } as unknown as CreateRequest & { stream: true });
+          ...(parsed.system ? { system: parsed.system } : {}),
+          ...(parsed.template ? { template: parsed.template } : {}),
+          ...(parsed.license ? { license: parsed.license } : {}),
+          ...(parsed.parameters ? { parameters: parsed.parameters } : {}),
+          ...(parsed.messages ? { messages: parsed.messages } : {}),
+          ...(parsed.adapters ? { adapters: parsed.adapters } : {}),
+        };
+
+        const stream = await client.create(createRequest);
 
         for await (const chunk of stream) {
           if (chunk.status) {

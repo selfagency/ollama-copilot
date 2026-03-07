@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { ChatResponse, Message, Ollama, Tool } from 'ollama';
 import * as vscode from 'vscode';
-import { getOllamaClient, testConnection } from './client.js';
+import { getCloudOllamaClient, getOllamaClient, testConnection } from './client.js';
 import { OllamaInlineCompletionProvider } from './completions.js';
 import { createDiagnosticsLogger, getConfiguredLogLevel, type DiagnosticsLogger } from './diagnostics.js';
 import { registerModelfileManager } from './modelfiles.js';
@@ -251,6 +251,7 @@ export async function handleChatRequest(
   token: vscode.CancellationToken,
   client?: Ollama,
   outputChannel?: DiagnosticsLogger,
+  extensionContext?: vscode.ExtensionContext,
 ): Promise<void> {
   const messages: vscode.LanguageModelChatMessage[] = [];
 
@@ -289,6 +290,12 @@ export async function handleChatRequest(
         modelId = toRuntimeModelId(ourModels[0].id);
       }
     }
+
+    // Use cloud-authenticated client when the selected model is a cloud model.
+    const cloudModelTag = modelId.split(':')[1] ?? '';
+    const isCloudModel = cloudModelTag === 'cloud' || cloudModelTag.endsWith('-cloud');
+    const effectiveClient =
+      isCloudModel && extensionContext ? await getCloudOllamaClient(extensionContext) : client;
 
     try {
       // Convert VS Code messages to the plain Ollama format expected by the client.
@@ -386,7 +393,7 @@ export async function handleChatRequest(
             return;
           }
 
-          const roundResponse = await client.chat({
+          const roundResponse = await effectiveClient.chat({
             model: modelId,
             messages: ollamaMessages as Message[],
             stream: false,
@@ -444,7 +451,7 @@ export async function handleChatRequest(
       let response: AsyncIterable<ChatResponse>;
 
       try {
-        response = await client.chat({
+        response = await effectiveClient.chat({
           model: modelId,
           messages: ollamaMessages as Message[],
           stream: true,
@@ -457,7 +464,7 @@ export async function handleChatRequest(
           chatError.name === 'ResponseError' &&
           chatError.message.toLowerCase().includes('does not support thinking')
         ) {
-          response = await client.chat({
+          response = await effectiveClient.chat({
             model: modelId,
             messages: ollamaMessages as Message[],
             stream: true,
@@ -510,7 +517,7 @@ export async function handleChatRequest(
       const isCrashError = error instanceof Error && error.message.includes('model runner has unexpectedly stopped');
       if (isCrashError) {
         // Best-effort unload to keep behaviour consistent with the provider path.
-        void client.generate({ model: modelId, prompt: '', keep_alive: 0, stream: false }).catch(() => {});
+        void effectiveClient.generate({ model: modelId, prompt: '', keep_alive: 0, stream: false }).catch(() => {});
         const selection = await vscode.window.showErrorMessage(
           'The Ollama model runner crashed. Please check the Ollama server logs and restart if needed.',
           'Open Logs',
@@ -797,7 +804,7 @@ export async function activate(context: vscode.ExtensionContext) {
     token: vscode.CancellationToken,
   ): Promise<void> => {
     // Pass the Ollama client so the handler streams directly — no VS Code IPC overhead.
-    await handleChatRequest(request, chatContext, stream, token, client, diagnostics);
+    await handleChatRequest(request, chatContext, stream, token, client, diagnostics, context);
   };
 
   const participant = setupChatParticipant(context, participantHandler);
