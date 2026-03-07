@@ -184,6 +184,8 @@ jobs:
 
       - name: Build extension package
         run: task compile
+        env:
+          PATH: ./node_modules/.bin:$PATH
 
       - name: Package extension
         run: |

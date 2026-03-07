@@ -85,6 +85,7 @@ jobs:
         run: xvfb-run -a task unit-test-coverage -- --reporter=default --reporter=junit --outputFile=test-report.junit.xml
         env:
           CI: true
+          PATH: ./node_modules/.bin:$PATH
 
       - name: Run extension tests
         run: task extension-tests
@@ -122,6 +123,7 @@ jobs:
         env:
           CI: true
           OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+          PATH: ./node_modules/.bin:$PATH
 
       - name: Upload test artifacts on failure
         if: failure()
