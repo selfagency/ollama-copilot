@@ -109,6 +109,14 @@ jobs:
           exit 1
         shell: bash
 
+      - name: Cache Ollama model
+        uses: actions/cache@v5
+        with:
+          path: ~/.ollama
+          key: ${{ runner.os }}-ollama-llama3.2:1b
+          restore-keys: |
+            ${{ runner.os }}-ollama-
+
       - name: Pull Ollama model
         run: ollama pull llama3.2:1b
         shell: bash
