@@ -1322,11 +1322,33 @@ describe('Extracted command handlers', () => {
       deleteModel: vi.fn(),
     } as any;
 
-    const item = new ModelTreeItem('test-model', 'local-running', 1000);
+    const item = new ModelTreeItem('test-model', 'local-stopped', 1000);
 
     await handleDeleteModel(item, mockProvider);
 
     expect(mockProvider.deleteModel).toHaveBeenCalledWith('test-model');
+  });
+
+  it('handleDeleteModel blocks deletion of a running local model', async () => {
+    const { handleDeleteModel, ModelTreeItem } = await import('./sidebar.js');
+
+    const mockProvider = { deleteModel: vi.fn() } as any;
+    const item = new ModelTreeItem('test-model', 'local-running', 1000);
+
+    await handleDeleteModel(item, mockProvider);
+
+    expect(mockProvider.deleteModel).not.toHaveBeenCalled();
+  });
+
+  it('handleDeleteModel blocks deletion of a running cloud model', async () => {
+    const { handleDeleteModel, ModelTreeItem } = await import('./sidebar.js');
+
+    const mockProvider = { deleteModel: vi.fn() } as any;
+    const item = new ModelTreeItem('cloud-model', 'cloud-running', 1000);
+
+    await handleDeleteModel(item, mockProvider);
+
+    expect(mockProvider.deleteModel).not.toHaveBeenCalled();
   });
 
   it('handleDeleteModel does not delete when cancelled', async () => {
