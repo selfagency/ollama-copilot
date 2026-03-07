@@ -1504,7 +1504,7 @@ describe('Extracted command handlers', () => {
 
     expect(mockCloudProvider.resolveRunnableCloudModelName).toHaveBeenCalledWith('cogito-2.1');
     expect(mockProvider.startModel).toHaveBeenCalledWith('cogito-2.1:671b-cloud');
-    expect(mockCloudProvider.markModelWarm).toHaveBeenCalledWith('cogito-2.1');
+    expect(mockCloudProvider.markModelWarm).toHaveBeenCalledWith('cogito-2.1', 'cogito-2.1:671b-cloud');
     expect(mockCloudProvider.refresh).toHaveBeenCalled();
   });
 
@@ -1516,6 +1516,7 @@ describe('Extracted command handlers', () => {
     } as any;
 
     const mockCloudProvider = {
+      getWarmedModelName: vi.fn().mockReturnValue('test-model:cloud'),
       markModelStopped: vi.fn(),
       refresh: vi.fn(),
     } as any;
@@ -1524,7 +1525,8 @@ describe('Extracted command handlers', () => {
 
     await handleStopCloudModel(item, mockProvider, mockCloudProvider);
 
-    expect(mockProvider.stopModel).toHaveBeenCalledWith('test-model');
+    expect(mockCloudProvider.getWarmedModelName).toHaveBeenCalledWith('test-model');
+    expect(mockProvider.stopModel).toHaveBeenCalledWith('test-model:cloud');
     expect(mockCloudProvider.markModelStopped).toHaveBeenCalledWith('test-model');
     expect(mockCloudProvider.refresh).toHaveBeenCalled();
   });
