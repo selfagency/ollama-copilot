@@ -1306,11 +1306,13 @@ export function handleOpenCloudModel(item: ModelTreeItem): void {
  * Command handler: delete model
  */
 export async function handleDeleteModel(item: ModelTreeItem, localProvider: LocalModelsProvider): Promise<void> {
+  if (item && (item.type === 'local-running' || item.type === 'cloud-running')) {
+    void window.showErrorMessage('Stop the model before deleting it.');
+    return;
+  }
   if (
     item &&
-    (item.type === 'local-running' ||
-      item.type === 'local-stopped' ||
-      item.type === 'cloud-running' ||
+    (item.type === 'local-stopped' ||
       item.type === 'cloud-stopped')
   ) {
     const answer = await window.showWarningMessage(`Delete model "${item.label}"?`, 'Delete', 'Cancel');

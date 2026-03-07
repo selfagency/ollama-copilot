@@ -301,11 +301,6 @@
           "group": "inline@1"
         },
         {
-          "command": "ollama-copilot.deleteModel",
-          "when": "view == ollama-local-models && viewItem == local-running",
-          "group": "inline@3"
-        },
-        {
           "command": "ollama-copilot.pullModelFromLibrary",
           "when": "view == ollama-library-models && viewItem == library-model-variant",
           "group": "inline@1"
@@ -344,11 +339,6 @@
           "command": "ollama-copilot.stopCloudModel",
           "when": "view == ollama-cloud-models && viewItem == cloud-running",
           "group": "inline@2"
-        },
-        {
-          "command": "ollama-copilot.deleteModel",
-          "when": "view == ollama-cloud-models && viewItem == cloud-running",
-          "group": "inline@3"
         },
         {
           "command": "ollama-copilot.editModelfile",
