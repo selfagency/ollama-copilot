@@ -64,7 +64,7 @@ tasks:
   extension-tests:
     desc: Run extension tests
     cmds:
-      - node test/extension/index.js {{.CLI_ARGS}}
+      - xvfb-run -a node test/extension/index.js {{.CLI_ARGS}}
     silent: false
 
   integration-tests:
