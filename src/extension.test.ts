@@ -1444,6 +1444,7 @@ describe('handleConnectionTestFailure', () => {
     expect(showErrorMessage).toHaveBeenCalledWith(
       expect.stringContaining('Cannot connect to Ollama server'),
       'Open Settings',
+      'Open Logs',
     );
     expect(executeCommand).toHaveBeenCalledWith('workbench.action.openSettings', 'ollama');
   });
@@ -1458,6 +1459,7 @@ describe('handleConnectionTestFailure', () => {
     expect(showErrorMessage).toHaveBeenCalledWith(
       expect.stringContaining('Cannot connect to Ollama server'),
       'Open Settings',
+      'Open Logs',
     );
     expect(executeCommand).not.toHaveBeenCalled();
   });

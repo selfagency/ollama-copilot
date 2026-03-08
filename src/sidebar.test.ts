@@ -134,13 +134,20 @@ describe('LocalModelsProvider', () => {
   });
 
   it('invokes onLocalModelsChanged callback when local models are refreshed', async () => {
-    const onLocalModelsChanged = vi.fn();
-    const callbackProvider = new LocalModelsProvider(mockClient, undefined, undefined, onLocalModelsChanged);
+    vi.useFakeTimers();
+    try {
+      const onLocalModelsChanged = vi.fn();
+      const callbackProvider = new LocalModelsProvider(mockClient, undefined, undefined, onLocalModelsChanged);
 
-    callbackProvider.refresh();
+      callbackProvider.refresh();
+      // refresh() is debounced — advance past the 300ms window
+      await vi.advanceTimersByTimeAsync(300);
 
-    expect(onLocalModelsChanged).toHaveBeenCalledTimes(1);
-    callbackProvider.dispose();
+      expect(onLocalModelsChanged).toHaveBeenCalledTimes(1);
+      callbackProvider.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not leak configuration listeners when localModelRefreshInterval changes multiple times', async () => {
