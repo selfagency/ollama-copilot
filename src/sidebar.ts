@@ -280,7 +280,10 @@ async function fetchModelPagePreview(
 
     const html = await response.text();
     const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
-    const descMatch = html.match(/<meta\s+name="description"\s+content="([^"]*)"/i);
+    const descMatch =
+      html.match(/<meta\s+name=["']description["'][^>]*content=["']([^"']*)["']/i) ||
+      html.match(/<meta[^>]*content=["']([^"']*)["'][^>]*name=["']description["']/i) ||
+      html.match(/<meta\s+property=["']og:description["'][^>]*content=["']([^"']*)["']/i);
 
     const title = titleMatch?.[1]?.trim() || modelName;
     const description = descMatch?.[1]?.trim() || 'No description available from the library page.';
@@ -692,6 +695,8 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
   private loadPromise: Promise<string[]> | null = null;
   /** Caches raw variant metadata (names + sizes) only — not materialized tree items. */
   private variantsCache = new Map<string, VariantRaw[]>();
+  /** Base model names that are available in Ollama Cloud catalog. */
+  private cloudCatalogNames = new Set<string>();
   private localProvider?: LocalModelsProvider;
 
   constructor(private logChannel?: DiagnosticsLogger) {
@@ -840,6 +845,7 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
     this.cacheTimeMs = 0;
     this.loadPromise = null;
     this.variantsCache.clear();
+    this.cloudCatalogNames.clear();
     this.cacheGeneration++;
     this.treeChangeEmitter.fire(null);
   }
@@ -861,7 +867,45 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
         isDownloaded ? 'library-model-downloaded-variant' : 'library-model-variant',
         size,
       );
-      item.tooltip = name;
+      const tag = name.split(':')[1] ?? '';
+      const isCloudVariant = tag === 'cloud' || tag.endsWith('-cloud');
+      if (isCloudVariant) {
+        const existing = (item.description ?? '').toString();
+        item.description = existing ? `${existing} ☁️` : '☁️';
+      }
+
+      item.tooltip = isCloudVariant ? `🤖 ${name}\n☁️ Cloud` : `🤖 ${name}`;
+
+      // Fetch description/capabilities asynchronously for leaf variants.
+      void fetchModelPagePreview(name).then(
+        preview => {
+          const badges: string[] = [];
+          if (isCloudVariant) badges.push('☁️');
+          if (preview.capabilities.thinking || isThinkingModelId(name)) badges.push('🧠');
+          if (preview.capabilities.tools) badges.push('🛠️');
+          if (preview.capabilities.vision) badges.push('👁️');
+          if (preview.capabilities.embedding) badges.push('🧩');
+
+          if (badges.length > 0) {
+            const existing = (item.description ?? '').toString();
+            // Remove previously appended capability badges, keep size text intact.
+            const cleaned = existing.replace(/\s*(?:☁️|🧠|🛠️|👁️|🧩)(?:\s+(?:☁️|🧠|🛠️|👁️|🧩))*\s*$/, '').trim();
+            const badgeStr = badges.join(' ');
+            item.description = cleaned ? `${cleaned} ${badgeStr}` : badgeStr;
+          }
+
+          const tooltipLines = [`🤖 ${name}`];
+          if (isCloudVariant) tooltipLines.push('☁️ Cloud');
+          tooltipLines.push(...buildCapabilityLines(preview.capabilities));
+          if (preview.description) tooltipLines.push(preview.description);
+          item.tooltip = tooltipLines.join('\n');
+          this.treeChangeEmitter.fire(item);
+        },
+        () => {
+          // Keep initial tooltip.
+        },
+      );
+
       return item;
     });
   }
@@ -933,6 +977,19 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
       }
 
       const html = await response.text();
+      let cloudHtml = '';
+      try {
+        const cloudResponse = await fetch('https://ollama.com/search?c=cloud', {
+          method: 'GET',
+          signal: controller.signal,
+        });
+        if (cloudResponse.ok) {
+          cloudHtml = await cloudResponse.text();
+        }
+      } catch {
+        // Cloud catalog fetch is best-effort; continue with base library list.
+      }
+
       const matches = [...html.matchAll(/href="\/library\/([^"?#]+)"/g)];
       const parsedNames = [
         ...new Set(
@@ -942,14 +999,18 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
         ),
       ];
 
+      const cloudMatches = [...cloudHtml.matchAll(/href="\/library\/([^"?#:]+)"/gi)];
+      const cloudNames = [
+        ...new Set(
+          cloudMatches
+            .map(match => (typeof match[1] === 'string' ? decodeURIComponent(match[1]).trim() : ''))
+            .filter(Boolean),
+        ),
+      ];
+      this.cloudCatalogNames = new Set(cloudNames.map(name => name.toLowerCase()));
+
       const filteredNames = parsedNames.filter(name => {
         const normalized = name.toLowerCase();
-        if (normalized.startsWith('cloud/')) {
-          return false;
-        }
-        if (normalized.includes('/cloud/')) {
-          return false;
-        }
         // Exclude variant-style names (e.g., llama3.2:1b) from the top-level list
         if (normalized.includes(':')) {
           return false;
@@ -957,11 +1018,14 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
         return true;
       });
 
-      if (filteredNames.length === 0) {
+      // Merge explicit cloud catalog families so "cloud" filtering works in Library.
+      const mergedNames = [...new Set([...filteredNames, ...cloudNames])];
+
+      if (mergedNames.length === 0) {
         throw new Error('No model names parsed from library page');
       }
 
-      const limitedNames = filteredNames.slice(0, 200);
+      const limitedNames = mergedNames.slice(0, 200);
       this.logChannel?.info(`[Ollama] Library loaded with ${limitedNames.length} models`);
       return limitedNames;
     } finally {
@@ -974,16 +1038,34 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
 
     const items = sortedNames.map(name => {
       const item = new ModelTreeItem(name, 'library-model');
-      item.tooltip = `Library model: ${name}`;
+      const isCloudCatalogModel = this.cloudCatalogNames.has(name.toLowerCase());
+      if (isCloudCatalogModel) {
+        item.description = '☁️';
+      }
+      item.tooltip = isCloudCatalogModel ? `Library model: ${name}\n☁️ Cloud` : `Library model: ${name}`;
       // Fetch description and capabilities asynchronously
       void fetchModelPagePreview(name).then(
         preview => {
           const tooltipLines = [`🤖 ${name}`];
+          if (isCloudCatalogModel) {
+            tooltipLines.push('☁️ Cloud');
+          }
           const capLines = buildCapabilityLines(preview.capabilities);
           if (capLines.length > 0) {
             tooltipLines.push(...capLines);
           }
           if (preview.description) tooltipLines.push(preview.description);
+
+          const badges: string[] = [];
+          if (isCloudCatalogModel) badges.push('☁️');
+          if (preview.capabilities.thinking || isThinkingModelId(name)) badges.push('🧠');
+          if (preview.capabilities.tools) badges.push('🛠️');
+          if (preview.capabilities.vision) badges.push('👁️');
+          if (preview.capabilities.embedding) badges.push('🧩');
+          if (badges.length > 0) {
+            item.description = badges.join(' ');
+          }
+
           item.tooltip = tooltipLines.join('\n');
           this.treeChangeEmitter.fire(item);
         },
@@ -1317,8 +1399,7 @@ export class CloudModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
       const cloudClient = await getCloudOllamaClient(this.context);
 
       // Fetch model status and cloud catalog concurrently to minimize latency.
-      const [listResponse, psResponse, libraryResponse] = await Promise.all([
-        cloudClient.list(),
+      const [psResponse, libraryResponse] = await Promise.all([
         cloudClient.ps(),
         fetch('https://ollama.com/search?c=cloud', {
           method: 'GET',
@@ -1339,22 +1420,9 @@ export class CloudModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
         runningModels.set(baseName, { durationMs, size: model.size });
       }
 
-      // Source cloud model names from authenticated local Ollama list() output.
-      const cloudModelNames = [
-        ...new Set(
-          (listResponse.models ?? [])
-            .map(model => model.name)
-            .filter(name => this.isCloudTaggedModel(name))
-            .sort((a, b) => a.localeCompare(b)),
-        ),
-      ];
-
-      if (cloudModelNames.length === 0) {
-        return [makeStatusActionItem('Login to Ollama Cloud', 'ollama-copilot.loginCloud')];
-      }
-
       // Build a map of capabilities per model from the catalog HTML.
       // Each model card contains capability labels like "Tools", "Vision", etc.
+      const cloudModelNames: string[] = [];
       const cloudCapabilities = new Map<string, Set<string>>();
       if (libraryResponse.ok) {
         const html = await libraryResponse.text();
@@ -1369,10 +1437,16 @@ export class CloudModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
           if (/\bThinking\b/i.test(blockText)) caps.add('thinking');
           if (/\bEmbedding\b/i.test(blockText)) caps.add('embedding');
           cloudCapabilities.set(name, caps);
+          cloudModelNames.push(name);
         }
       }
 
-      const items = cloudModelNames
+      const uniqueCloudModelNames = [...new Set(cloudModelNames)].sort((a, b) => a.localeCompare(b));
+      if (uniqueCloudModelNames.length === 0) {
+        return [makeStatusActionItem('Login to Ollama Cloud', 'ollama-copilot.loginCloud')];
+      }
+
+      const items = uniqueCloudModelNames
         .map(fullName => {
           const baseName = fullName.split(':')[0];
           const runningInfo = runningModels.get(baseName);
