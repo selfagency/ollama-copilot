@@ -276,11 +276,17 @@ async function fetchModelPagePreview(
     const title = titleMatch?.[1]?.trim() || modelName;
     const description = descMatch?.[1]?.trim() || 'No description available from the library page.';
 
+    // Scope capability detection to dedicated section to avoid false positives.
+    const capabilitiesSectionMatch =
+      html.match(/<section[^>]*aria-label=["']Capabilities["'][\s\S]*?<\/section>/i) ||
+      html.match(/<div[^>]*class=["'][^"']*capabilit[^"']*["'][\s\S]*?<\/div>/i);
+    const capabilitiesHtml = capabilitiesSectionMatch?.[0] ?? html;
+
     const capabilities = {
-      thinking: /\bThinking\b/i.test(html) || isThinkingModelId(modelName),
-      tools: /\bTools\b/i.test(html),
-      vision: /\bVision\b/i.test(html),
-      embedding: /\bEmbedding\b/i.test(html),
+      thinking: /\bThinking\b/i.test(capabilitiesHtml) || isThinkingModelId(modelName),
+      tools: /\bTools\b/i.test(capabilitiesHtml),
+      vision: /\bVision\b/i.test(capabilitiesHtml),
+      embedding: /\bEmbedding\b/i.test(capabilitiesHtml),
     };
 
     return { title, description, capabilities };
@@ -1357,7 +1363,7 @@ export class CloudModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
       // Build a map of capabilities per model from the catalog HTML.
       // Each model card contains capability labels like "Tools", "Vision", etc.
       const cloudCapabilities = new Map<string, Set<string>>();
-      const capBlockRe = /href="\/library\/([^"?#:]+)"[^]*?(?=href="\/library\/|$)/gi;
+      const capBlockRe = /href="\/library\/([^"?#:]+)"[\s\S]*?(?=href="\/library\/|$)/gi;
       for (const block of html.matchAll(capBlockRe)) {
         const name = typeof block[1] === 'string' ? decodeURIComponent(block[1]).trim() : '';
         if (!name) continue;

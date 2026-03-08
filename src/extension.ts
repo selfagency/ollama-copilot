@@ -3,6 +3,7 @@ import { promises as fsPromises } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { ChatResponse, Message, Ollama, Tool } from 'ollama';
+import { formatXmlLikeResponseForDisplay } from './formatting';
 import * as vscode from 'vscode';
 import { getCloudOllamaClient, getOllamaClient, testConnection } from './client.js';
 import { OllamaInlineCompletionProvider } from './completions.js';
@@ -17,24 +18,6 @@ let builtInOllamaConflictPromptInProgress = false;
 
 function toRuntimeModelId(modelId: string): string {
   return modelId.startsWith(PROVIDER_MODEL_ID_PREFIX) ? modelId.slice(PROVIDER_MODEL_ID_PREFIX.length) : modelId;
-}
-
-function formatXmlLikeResponseForDisplay(text: string): string {
-  if (!text || !text.includes('<') || !text.includes('>')) {
-    return text;
-  }
-
-  const blockTagRe = /<([a-zA-Z_][a-zA-Z0-9_.-]*)[^>]*>([\s\S]*?)<\/\1>/g;
-  let replaced = false;
-  const transformed = text.replace(blockTagRe, (_full, rawTag: string, rawContent: string) => {
-    const tag = rawTag.replace(/[._-]+/g, ' ').trim();
-    const title = tag.charAt(0).toUpperCase() + tag.slice(1);
-    const content = String(rawContent).trim();
-    replaced = true;
-    return `\n\n**${title}**\n${content}\n\n`;
-  });
-
-  return replaced ? transformed.trim() : text;
 }
 
 function normalizeToolParameters(inputSchema: unknown): Tool['function']['parameters'] {

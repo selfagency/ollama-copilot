@@ -102,21 +102,6 @@ jobs:
       - name: Setup Ollama
         uses: ai-action/setup-ollama@v2
 
-      - name: Wait for Ollama server
-        run: |
-          sleep 5
-          for i in {1..30}; do
-            if curl -s http://localhost:11434/api/version > /dev/null; then
-              echo "Ollama server is running"
-              exit 0
-            fi
-            echo "Waiting for Ollama server... ($i/30)"
-            sleep 2
-          done
-          echo "Ollama server failed to start"
-          exit 1
-        shell: bash
-
       - name: Cache Ollama model
         uses: actions/cache@v5
         with:

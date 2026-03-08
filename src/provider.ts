@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { Ollama, type ChatResponse, type Message, type ShowResponse } from 'ollama';
+import { formatXmlLikeResponseForDisplay } from './formatting';
 import {
   CancellationToken,
   EventEmitter,
@@ -380,13 +381,16 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
    * thinking.
    */
   private isThinkingInternalServerError(error: unknown): boolean {
-    return (
-      error instanceof Error &&
-      error.name === 'ResponseError' &&
+    if (!(error instanceof Error) || error.name !== 'ResponseError') {
+      return false;
+    }
+    // Match 500 error AND check for thinking context in the error message
+    const is500Error =
       /(500\s+internal\s+server\s+error|"StatusCode"\s*:\s*500|"status_code"\s*:\s*500|"error"\s*:\s*"Internal Server Error")/i.test(
         error.message,
-      )
-    );
+      );
+    const hasThinkingContext = /think(?:ing)?/i.test(error.message);
+    return is500Error && hasThinkingContext;
   }
 
   private isToolsNotSupportedError(error: unknown): boolean {
