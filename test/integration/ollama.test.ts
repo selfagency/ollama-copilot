@@ -307,28 +307,36 @@ describe('Model lifecycle', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Cloud model tests (skipped when no cloud model is available)
+// Cloud model tests (skipped when no cloud model or API key is available)
 // ---------------------------------------------------------------------------
+
+const CLOUD_API_KEY = process.env.OLLAMA_CLOUD_API_KEY;
+
+function skipCloud(): boolean {
+  if (!cloudModelName) {
+    console.log('Skipping cloud test — no cloud model found.');
+    return true;
+  }
+  if (!CLOUD_API_KEY) {
+    console.log('Skipping cloud test — OLLAMA_CLOUD_API_KEY not set.');
+    return true;
+  }
+  return false;
+}
+
+function getCloudClient(): Ollama {
+  return new Ollama({
+    host: OLLAMA_HOST,
+    headers: { Authorization: `Bearer ${CLOUD_API_KEY}` },
+  });
+}
 
 describe('Cloud model chat', () => {
   it('generates a non-streaming response from a cloud model', async () => {
-    if (!cloudModelName) {
-      console.log('Skipping cloud model test — no cloud model found.');
-      return;
-    }
+    if (skipCloud()) return;
 
-    // Cloud models require an API key. Create a client with the key from the
-    // environment variable OLLAMA_CLOUD_API_KEY (if set).
-    const cloudApiKey = process.env.OLLAMA_CLOUD_API_KEY;
-    const cloudClient = cloudApiKey
-      ? new Ollama({
-          host: OLLAMA_HOST,
-          headers: { Authorization: `Bearer ${cloudApiKey}` },
-        })
-      : client;
-
-    const response = await cloudClient.chat({
-      model: cloudModelName,
+    const response = await getCloudClient().chat({
+      model: cloudModelName!,
       messages: [{ role: 'user', content: 'Reply with only the word "hello".' }],
       stream: false,
     });
@@ -339,22 +347,11 @@ describe('Cloud model chat', () => {
   }, 120_000);
 
   it('generates a streaming response from a cloud model', async () => {
-    if (!cloudModelName) {
-      console.log('Skipping cloud model test — no cloud model found.');
-      return;
-    }
-
-    const cloudApiKey = process.env.OLLAMA_CLOUD_API_KEY;
-    const cloudClient = cloudApiKey
-      ? new Ollama({
-          host: OLLAMA_HOST,
-          headers: { Authorization: `Bearer ${cloudApiKey}` },
-        })
-      : client;
+    if (skipCloud()) return;
 
     const chunks: string[] = [];
-    const stream = await cloudClient.chat({
-      model: cloudModelName,
+    const stream = await getCloudClient().chat({
+      model: cloudModelName!,
       messages: [{ role: 'user', content: 'Reply with only the word "yes".' }],
       stream: true,
     });
@@ -375,21 +372,10 @@ describe('Cloud model chat', () => {
 
 describe('Cloud model generate', () => {
   it('generates a completion from a cloud model', async () => {
-    if (!cloudModelName) {
-      console.log('Skipping cloud generate test — no cloud model found.');
-      return;
-    }
+    if (skipCloud()) return;
 
-    const cloudApiKey = process.env.OLLAMA_CLOUD_API_KEY;
-    const cloudClient = cloudApiKey
-      ? new Ollama({
-          host: OLLAMA_HOST,
-          headers: { Authorization: `Bearer ${cloudApiKey}` },
-        })
-      : client;
-
-    const response = await cloudClient.generate({
-      model: cloudModelName,
+    const response = await getCloudClient().generate({
+      model: cloudModelName!,
       prompt: 'The capital of France is',
       stream: false,
     });
@@ -408,54 +394,28 @@ describe('Cloud model start and stop', () => {
   // These tests verify the start/stop API calls succeed without error.
 
   it('starts a cloud model without error', async () => {
-    if (!cloudModelName) {
-      console.log('Skipping cloud start/stop test — no cloud model found.');
-      return;
-    }
+    if (skipCloud()) return;
 
-    const cloudApiKey = process.env.OLLAMA_CLOUD_API_KEY;
-    const cloudClient = cloudApiKey
-      ? new Ollama({
-          host: OLLAMA_HOST,
-          headers: { Authorization: `Bearer ${cloudApiKey}` },
-        })
-      : client;
-
-    // Start the cloud model using the same pattern as sidebar.ts startModel()
-    const response = await cloudClient.generate({
-      model: cloudModelName,
+    const response = await getCloudClient().generate({
+      model: cloudModelName!,
       prompt: '',
       stream: false,
       keep_alive: '10m',
     });
 
-    // The call should complete successfully
     expect(response).toBeDefined();
   }, 120_000);
 
   it('stops a cloud model without error', async () => {
-    if (!cloudModelName) {
-      console.log('Skipping cloud start/stop test — no cloud model found.');
-      return;
-    }
+    if (skipCloud()) return;
 
-    const cloudApiKey = process.env.OLLAMA_CLOUD_API_KEY;
-    const cloudClient = cloudApiKey
-      ? new Ollama({
-          host: OLLAMA_HOST,
-          headers: { Authorization: `Bearer ${cloudApiKey}` },
-        })
-      : client;
-
-    // Stop the cloud model
-    const response = await cloudClient.generate({
-      model: cloudModelName,
+    const response = await getCloudClient().generate({
+      model: cloudModelName!,
       prompt: '',
       stream: false,
       keep_alive: 0,
     });
 
-    // The call should complete successfully
     expect(response).toBeDefined();
   }, 120_000);
 });
