@@ -1398,9 +1398,13 @@ export class CloudModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
     try {
       const cloudClient = await getCloudOllamaClient(this.context);
 
-      // Fetch model status and cloud catalog concurrently to minimize latency.
-      const [psResponse, libraryResponse] = await Promise.all([
+      // Fetch running status and cloud catalog concurrently to minimize latency.
+      const [psResponse, tagsResponse, libraryResponse] = await Promise.all([
         cloudClient.ps(),
+        fetch('https://ollama.com/api/tags', {
+          method: 'GET',
+          signal: controller.signal,
+        }),
         fetch('https://ollama.com/search?c=cloud', {
           method: 'GET',
           signal: controller.signal,
@@ -1420,9 +1424,19 @@ export class CloudModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
         runningModels.set(baseName, { durationMs, size: model.size });
       }
 
-      // Build a map of capabilities per model from the catalog HTML.
-      // Each model card contains capability labels like "Tools", "Vision", etc.
+      // Primary source of available cloud models: /api/tags
       const cloudModelNames: string[] = [];
+      if (tagsResponse.ok && typeof tagsResponse.json === 'function') {
+        const payload = (await tagsResponse.json()) as { models?: Array<{ name?: string }> };
+        for (const model of payload.models ?? []) {
+          if (typeof model.name === 'string' && model.name.trim()) {
+            cloudModelNames.push(model.name.trim());
+          }
+        }
+      }
+
+      // Build a map of capabilities per model from the cloud catalog HTML.
+      // Each model card contains capability labels like "Tools", "Vision", etc.
       const cloudCapabilities = new Map<string, Set<string>>();
       if (libraryResponse.ok) {
         const html = await libraryResponse.text();
@@ -1437,7 +1451,10 @@ export class CloudModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
           if (/\bThinking\b/i.test(blockText)) caps.add('thinking');
           if (/\bEmbedding\b/i.test(blockText)) caps.add('embedding');
           cloudCapabilities.set(name, caps);
-          cloudModelNames.push(name);
+          // Fallback name source when /api/tags is unavailable.
+          if (cloudModelNames.length === 0) {
+            cloudModelNames.push(name);
+          }
         }
       }
 
