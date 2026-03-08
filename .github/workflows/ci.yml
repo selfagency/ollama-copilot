@@ -86,6 +86,14 @@ jobs:
         env:
           CI: true
 
+      - name: Cache VS Code test binary
+        uses: actions/cache@v5
+        with:
+          path: .vscode-test
+          key: ${{ runner.os }}-vscode-test-${{ hashFiles('package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-vscode-test-
+
       - name: Run extension tests
         run: xvfb-run -a ./node_modules/.bin/task extension-tests
         env:
