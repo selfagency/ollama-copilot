@@ -36,6 +36,7 @@ function supportsToolsFromShow(info: unknown): boolean {
 
 let client: Ollama;
 let cloudModelName: string | undefined;
+let cloudAuthValid = false;
 
 beforeAll(async () => {
   client = new Ollama({ host: OLLAMA_HOST });
@@ -54,6 +55,21 @@ beforeAll(async () => {
     return isCloudTag(tagPart);
   });
   cloudModelName = cloudEntry?.name;
+
+  // Validate cloud auth by trying a lightweight request with the API key.
+  const cloudApiKey = process.env.OLLAMA_CLOUD_API_KEY;
+  if (cloudModelName && cloudApiKey) {
+    try {
+      const cloudClient = new Ollama({
+        host: OLLAMA_HOST,
+        headers: { Authorization: `Bearer ${cloudApiKey}` },
+      });
+      await cloudClient.show({ model: cloudModelName });
+      cloudAuthValid = true;
+    } catch {
+      console.log(`Cloud auth validation failed for ${cloudModelName} — cloud tests will be skipped.`);
+    }
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -319,6 +335,10 @@ function skipCloud(): boolean {
   }
   if (!CLOUD_API_KEY) {
     console.log('Skipping cloud test — OLLAMA_CLOUD_API_KEY not set.');
+    return true;
+  }
+  if (!cloudAuthValid) {
+    console.log('Skipping cloud test — cloud auth validation failed.');
     return true;
   }
   return false;
