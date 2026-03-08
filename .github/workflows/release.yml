@@ -2,15 +2,15 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g. 1.2.3 or 1.2.3-rc.1)'
+        description: "Version to release (e.g. 1.2.3 or 1.2.3-rc.1)"
         required: true
         type: string
       pre_release:
-        description: 'Publish as pre-release'
+        description: "Publish as pre-release"
         required: false
         type: boolean
         default: false
@@ -186,8 +186,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '22'
-          cache: 'pnpm'
+          node-version: "22"
+          cache: "pnpm"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -204,7 +204,7 @@ jobs:
         with:
           tag_name: ${{ needs.detect-tag.outputs.release_tag }}
           body_path: release-notes.md
-          files: 'opilot.vsix'
+          files: "opilot.vsix"
           draft: false
           prerelease: ${{ needs.detect-tag.outputs.is_prerelease == 'true' }}
         env:
