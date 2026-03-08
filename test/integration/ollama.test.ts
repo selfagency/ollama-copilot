@@ -61,8 +61,9 @@ beforeAll(async () => {
   if (process.env.CI) {
     if (cloudModelName && cloudApiKey) {
       try {
+        // Cloud requests route to ollama.com, not localhost
         const cloudClient = new Ollama({
-          host: OLLAMA_HOST,
+          host: 'https://ollama.com',
           headers: { Authorization: `Bearer ${cloudApiKey}` },
         });
         await cloudClient.generate({
@@ -371,8 +372,10 @@ function skipCloud(): boolean {
 }
 
 function getCloudClient(): Ollama {
+  // Cloud requests route to ollama.com, not localhost
+  const host = CLOUD_API_KEY ? 'https://ollama.com' : OLLAMA_HOST;
   return new Ollama({
-    host: OLLAMA_HOST,
+    host,
     headers: { Authorization: `Bearer ${CLOUD_API_KEY}` },
   });
 }
