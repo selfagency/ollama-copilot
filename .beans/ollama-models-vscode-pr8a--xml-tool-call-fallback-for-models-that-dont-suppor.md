@@ -5,7 +5,7 @@ status: completed
 type: feature
 priority: high
 created_at: 2026-03-08T20:26:06Z
-updated_at: 2026-03-08T23:05:05Z
+updated_at: 2026-03-08T23:06:26Z
 ---
 
 When Ollama's native JSON tool calling fails (isToolsNotSupportedError), instead of dropping tool access entirely, fall back to an XML tool call loop.
