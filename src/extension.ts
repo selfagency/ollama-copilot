@@ -419,10 +419,6 @@ export async function handleChatRequest(
             return;
           }
 
-          if (disableToolsForThisRequest) {
-            break;
-          }
-
           let roundResponse: ChatResponse;
           try {
             roundResponse = (await effectiveClient.chat({
