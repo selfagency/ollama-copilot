@@ -606,7 +606,6 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
 
       let thinkingStarted = false;
       let contentStarted = false;
-      let emittedOutput = false;
 
       for await (const chunk of response) {
         if (token.isCancellationRequested) {
@@ -618,10 +617,8 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
           if (!thinkingStarted) {
             progress.report(new LanguageModelTextPart('\n\n💭 **Thinking**\n\n'));
             thinkingStarted = true;
-            emittedOutput = true;
           }
           progress.report(new LanguageModelTextPart(chunk.message.thinking));
-          emittedOutput = true;
         }
 
         // Stream text chunks immediately as they arrive
@@ -629,11 +626,9 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
           if (thinkingStarted && !contentStarted) {
             progress.report(new LanguageModelTextPart('\n\n---\n\n'));
             contentStarted = true;
-            emittedOutput = true;
           }
           this.outputChannel.debug?.(`[Ollama] Streaming chunk: ${chunk.message.content.substring(0, 50)}`);
           progress.report(new LanguageModelTextPart(this.formatXmlLikeResponseForDisplay(chunk.message.content)));
-          emittedOutput = true;
         }
 
         // Handle tool calls
@@ -653,7 +648,6 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
                 toolCall.function?.arguments || {},
               ),
             );
-            emittedOutput = true;
           }
         }
 
