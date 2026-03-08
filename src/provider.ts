@@ -426,28 +426,6 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
   }
 
   /**
-   * Convert simple XML-like tagged blocks into readable markdown sections.
-   * Example: <note>text</note> -> **Note**\ntext
-   */
-  private formatXmlLikeResponseForDisplay(text: string): string {
-    if (!text || !text.includes('<') || !text.includes('>')) {
-      return text;
-    }
-
-    const blockTagRe = /<([a-zA-Z_][a-zA-Z0-9_.-]*)[^>]*>([\s\S]*?)<\/\1>/g;
-    let replaced = false;
-    const transformed = text.replace(blockTagRe, (_full, rawTag: string, rawContent: string) => {
-      const tag = rawTag.replace(/[._-]+/g, ' ').trim();
-      const title = tag.charAt(0).toUpperCase() + tag.slice(1);
-      const content = String(rawContent).trim();
-      replaced = true;
-      return `\n\n**${title}**\n${content}\n\n`;
-    });
-
-    return replaced ? transformed.trim() : text;
-  }
-
-  /**
    * Check if model supports tool use
    */
   private isToolModel(modelResponse: unknown): boolean {
@@ -633,7 +611,8 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
             emittedOutput = true;
           }
           this.outputChannel.debug?.(`[Ollama] Streaming chunk: ${chunk.message.content.substring(0, 50)}`);
-          progress.report(new LanguageModelTextPart(this.formatXmlLikeResponseForDisplay(chunk.message.content)));
+          // Do not apply XML-like formatting per chunk: tags may span chunks.
+          progress.report(new LanguageModelTextPart(chunk.message.content));
           emittedOutput = true;
         }
 
@@ -692,7 +671,8 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
           if (fallback.message?.thinking) {
             progress.report(new LanguageModelTextPart('\n\n---\n\n'));
           }
-          progress.report(new LanguageModelTextPart(this.formatXmlLikeResponseForDisplay(fallback.message.content)));
+          // Non-stream fallback is complete text; safe to format XML-like blocks.
+          progress.report(new LanguageModelTextPart(formatXmlLikeResponseForDisplay(fallback.message.content)));
           emittedOutput = true;
         }
 
@@ -763,9 +743,8 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
               }
 
               if (rescued.message?.content) {
-                progress.report(
-                  new LanguageModelTextPart(this.formatXmlLikeResponseForDisplay(rescued.message.content)),
-                );
+                // Non-stream rescue is complete text; safe to format XML-like blocks.
+                progress.report(new LanguageModelTextPart(formatXmlLikeResponseForDisplay(rescued.message.content)));
               }
 
               if (rescued.message?.tool_calls && Array.isArray(rescued.message.tool_calls)) {

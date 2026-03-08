@@ -524,7 +524,8 @@ export async function handleChatRequest(
             contentStarted = true;
           }
           outputChannel?.debug(`[Ollama] @ollama chunk: ${chunk.message.content.substring(0, 50)}`);
-          stream.markdown(formatXmlLikeResponseForDisplay(chunk.message.content));
+          // Do not apply XML-like formatting per chunk: tags may span chunks.
+          stream.markdown(chunk.message.content);
         }
 
         if (chunk.message?.tool_calls?.length) {
