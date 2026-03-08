@@ -435,7 +435,6 @@ export async function handleChatRequest(
               break;
             }
             throw toolError;
-          }
 
           const toolCalls = roundResponse.message.tool_calls;
           if (!toolCalls?.length) {
