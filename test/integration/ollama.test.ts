@@ -58,22 +58,30 @@ beforeAll(async () => {
 
   // Validate cloud auth by trying a real cloud request (show doesn't require auth).
   const cloudApiKey = process.env.OLLAMA_CLOUD_API_KEY;
-  if (cloudModelName && cloudApiKey) {
-    try {
-      const cloudClient = new Ollama({
-        host: OLLAMA_HOST,
-        headers: { Authorization: `Bearer ${cloudApiKey}` },
-      });
-      await cloudClient.generate({
-        model: cloudModelName,
-        prompt: '',
-        stream: false,
-        keep_alive: 0,
-        options: { num_predict: 1 },
-      });
-      cloudAuthValid = true;
-    } catch {
-      console.log(`Cloud auth validation failed for ${cloudModelName} — cloud tests will be skipped.`);
+  if (process.env.CI) {
+    if (cloudModelName && cloudApiKey) {
+      try {
+        const cloudClient = new Ollama({
+          host: OLLAMA_HOST,
+          headers: { Authorization: `Bearer ${cloudApiKey}` },
+        });
+        await cloudClient.generate({
+          model: cloudModelName,
+          prompt: '',
+          stream: false,
+          keep_alive: 0,
+          options: { num_predict: 1 },
+        });
+        cloudAuthValid = true;
+      } catch {
+        console.log(`Cloud auth validation failed for ${cloudModelName} — cloud tests will be skipped.`);
+      }
+    }
+  } else {
+    if (!cloudModelName) {
+      console.log('No cloud model detected — cloud tests will be skipped.');
+    } else {
+      cloudAuthValid = true; // Assume valid if not in CI since we're logged in to Ollama locally
     }
   }
 });
@@ -351,7 +359,7 @@ function skipCloud(): boolean {
     console.log('Skipping cloud test — no cloud model found.');
     return true;
   }
-  if (!CLOUD_API_KEY) {
+  if (process.env.CI && !CLOUD_API_KEY) {
     console.log('Skipping cloud test — OLLAMA_CLOUD_API_KEY not set.');
     return true;
   }
