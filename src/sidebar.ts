@@ -22,9 +22,26 @@ import {
 } from 'vscode';
 import { fetchModelCapabilities, getCloudOllamaClient, type ModelCapabilities } from './client.js';
 import type { DiagnosticsLogger } from './diagnostics.js';
+import { reportError } from './errorHandler.js';
 import { isThinkingModelId } from './provider.js';
 
 const execAsync = promisify(exec);
+
+/**
+ * Validates that a fetch response carries an HTML Content-Type.
+ * Throws an informative error when a proxy or CDN returns a clearly non-HTML
+ * payload (e.g. a JSON error body), so that the caller's regex scraping fails
+ * loudly rather than silently producing empty results.
+ * Silently passes when the header is absent (some servers omit it).
+ */
+function assertHtmlContentType(response: Response): void {
+  const ct = response.headers?.get('content-type') ?? '';
+  if (ct && !ct.includes('text/html')) {
+    throw new Error(
+      `Expected text/html from ${response.url} but got '${ct}' (HTTP ${response.status})`,
+    );
+  }
+}
 
 /**
  * Tree item representing a pane or model in the sidebar
@@ -357,6 +374,7 @@ async function fetchModelPagePreview(
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
+    assertHtmlContentType(response);
 
     const html = await response.text();
     const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
@@ -523,6 +541,7 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
   private configListenerDisposable?: Disposable;
   private localModelCapabilitiesCache = new Map<string, ModelCapabilities>();
   private localModelCapabilitiesInFlight = new Set<string>();
+  private refreshDebounceTimer: NodeJS.Timeout | undefined;
   private cachedLocalModelNames = new Set<string>();
   private static readonly LOCAL_CAPABILITIES_STORAGE_KEY = 'ollama.localModelCapabilities.v1';
 
@@ -789,7 +808,7 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
       this.cachedLocalModelNames = new Set(visibleLocalModels.map(m => m.name));
       return items.length > 0 ? items : [makeStatusItem('No local models found')];
     } catch (error) {
-      this.logChannel?.exception('[client] failed to load local models', error);
+      reportError(this.logChannel, 'Failed to load local models', error, { showToUser: false });
       return [makeStatusItem('Failed to load local models')];
     }
   }
@@ -798,9 +817,19 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
    * Refresh the tree (manual refresh button - forces immediate refresh)
    */
   refresh(): void {
-    this.logChannel?.debug('[client] manual refresh triggered');
-    this.treeChangeEmitter.fire(null);
-    this.onLocalModelsChanged?.();
+    this.logChannel?.debug('[client] manual refresh triggered (debounced)');
+    if (this.refreshDebounceTimer) {
+      clearTimeout(this.refreshDebounceTimer);
+    }
+    this.refreshDebounceTimer = setTimeout(() => {
+      this.treeChangeEmitter.fire(null);
+      try {
+        this.onLocalModelsChanged?.();
+      } catch (err) {
+        reportError(this.logChannel, 'Error during onLocalModelsChanged handler', err, { showToUser: false });
+      }
+      this.refreshDebounceTimer = undefined;
+    }, 300);
   }
 
   /**
@@ -1439,7 +1468,7 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
         return names;
       })
       .catch(error => {
-        this.logChannel?.exception('[client] library fetch failed', error);
+        reportError(this.logChannel, 'Library fetch failed', error, { showToUser: false });
         return [];
       })
       .finally(() => {
@@ -1504,6 +1533,7 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
       if (!response.ok) {
         throw new Error(`HTTP ${response.status} from remote library`);
       }
+      assertHtmlContentType(response);
 
       const html = await response.text();
       let cloudHtml = '';
@@ -1622,6 +1652,7 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
+      assertHtmlContentType(response);
 
       const html = await response.text();
       const escapedName = modelName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -1653,7 +1684,7 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
 
       return variantNames.map(name => ({ name, size: sizeMap.get(name) }));
     } catch (error) {
-      this.logChannel?.exception('[client] failed to fetch model variants', error);
+      reportError(this.logChannel, 'Failed to fetch model variants', error, { showToUser: false });
       return null;
     } finally {
       clearTimeout(timeout);
@@ -1884,6 +1915,11 @@ export class CloudModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
       });
 
       if (response.ok) {
+        const ct = response.headers?.get('content-type') ?? '';
+        if (ct && !ct.includes('text/html')) {
+          // Non-HTML response (e.g. proxy error page) — skip scraping
+          return `${modelName}:cloud`;
+        }
         const html = await response.text();
         const tagMatches = [
           ...html.matchAll(new RegExp(`href="/library/(${escapedName}:(?:cloud|[^"?#]*-cloud))"`, 'gi')),
@@ -1940,7 +1976,7 @@ export class CloudModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
         return items;
       })
       .catch(error => {
-        this.logChannel?.exception('[client] cloud models fetch failed', error);
+        reportError(this.logChannel, 'Cloud models fetch failed', error, { showToUser: false });
         return [makeStatusActionItem('Login to Ollama Cloud', 'ollama-copilot.loginCloud')];
       })
       .finally(() => {
@@ -1955,7 +1991,7 @@ export class CloudModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
     try {
       runningModels = await this.fetchCloudRunningModels(8000);
     } catch (error) {
-      this.logChannel?.exception('[client] failed to refresh cloud running status', error);
+      reportError(this.logChannel, 'Failed to refresh cloud running status', error, { showToUser: false });
     }
 
     if (this.catalogModelNames.length === 0) {
