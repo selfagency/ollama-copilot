@@ -845,7 +845,7 @@ describe('OllamaChatModelProvider chat response', () => {
     expect(allValues.some((v: string) => v.includes('The answer is 42.'))).toBe(true);
   });
 
-  it('renders XML-like assistant output as markdown sections', async () => {
+  it('streams XML-like assistant output as raw text per chunk', async () => {
     const chat = vi.fn().mockResolvedValue(
       (async function* () {
         yield {
@@ -893,8 +893,8 @@ describe('OllamaChatModelProvider chat response', () => {
     );
 
     const rendered = progress.report.mock.calls.map((c: any[]) => c[0]?.value ?? '').join('');
-    expect(rendered).toContain('**Note**');
-    expect(rendered).toContain('**Help**');
+    expect(rendered).toContain('<note>Use Cmd+N to create a note.</note>');
+    expect(rendered).toContain('<help>Use search in the top right for keywords.</help>');
     expect(rendered).toContain('Use Cmd+N to create a note.');
   });
 
@@ -1052,7 +1052,9 @@ describe('OllamaChatModelProvider chat response', () => {
 
   it('retries without think when model returns generic 500 internal server error', async () => {
     const thinking500Error = Object.assign(
-      new Error('{"StatusCode":500,"Status":"500 Internal Server Error","error":"Internal Server Error"}'),
+      new Error(
+        '{"StatusCode":500,"Status":"500 Internal Server Error","error":"Internal Server Error while thinking"}',
+      ),
       {
         name: 'ResponseError',
         status_code: 500,
@@ -1114,7 +1116,9 @@ describe('OllamaChatModelProvider chat response', () => {
 
   it('retries cloud request without tools when server returns 500', async () => {
     const tools500Error = Object.assign(
-      new Error('{"StatusCode":500,"Status":"500 Internal Server Error","error":"Internal Server Error"}'),
+      new Error(
+        '{"StatusCode":500,"Status":"500 Internal Server Error","error":"Internal Server Error while thinking"}',
+      ),
       {
         name: 'ResponseError',
         status_code: 500,
@@ -1256,7 +1260,9 @@ describe('OllamaChatModelProvider chat response', () => {
 
   it('rescues opaque cloud 500 failures with non-stream fallback', async () => {
     const opaque500 = Object.assign(
-      new Error('{"StatusCode":500,"Status":"500 Internal Server Error","error":"Internal Server Error"}'),
+      new Error(
+        '{"StatusCode":500,"Status":"500 Internal Server Error","error":"Internal Server Error while thinking"}',
+      ),
       {
         name: 'ResponseError',
         status_code: 500,
@@ -1336,7 +1342,9 @@ describe('OllamaChatModelProvider chat response', () => {
 
   it('cloud rescue preserves thinking and tool calls when present', async () => {
     const opaque500 = Object.assign(
-      new Error('{"StatusCode":500,"Status":"500 Internal Server Error","error":"Internal Server Error"}'),
+      new Error(
+        '{"StatusCode":500,"Status":"500 Internal Server Error","error":"Internal Server Error while thinking"}',
+      ),
       { name: 'ResponseError', status_code: 500 },
     );
 
