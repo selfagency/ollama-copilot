@@ -354,18 +354,18 @@ describe('OllamaChatModelProvider error handling', () => {
   });
 
   it('handles model list fetch errors gracefully', async () => {
-    const exception = vi.fn();
+    const error = vi.fn();
     const list = vi.fn().mockRejectedValue(new Error('Connection failed'));
 
     const provider = new OllamaChatModelProvider(
       { secrets: { get: vi.fn(), store: vi.fn(), delete: vi.fn() } } as any,
       { list, show: vi.fn() } as any,
-      { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), exception } as any,
+      { info: vi.fn(), warn: vi.fn(), error, debug: vi.fn(), exception: vi.fn() } as any,
     );
 
     const models = await provider.provideLanguageModelChatInformation({ silent: true }, {} as any);
 
-    expect(exception).toHaveBeenCalled();
+    expect(error).toHaveBeenCalled();
     expect(models).toEqual([]);
   });
 
