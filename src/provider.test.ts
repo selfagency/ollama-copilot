@@ -477,6 +477,75 @@ describe('OllamaChatModelProvider error handling', () => {
 
     expect(models.map((m: { id: string }) => m.id)).toContain('ollama:newmodel');
   });
+
+  it('concurrent provideLanguageModelChatInformation calls share in-flight promise (single list() call)', async () => {
+    let resolveList!: (v: unknown) => void;
+    const listPending = new Promise(resolve => {
+      resolveList = resolve;
+    });
+
+    const list = vi.fn().mockReturnValueOnce(listPending);
+    const show = vi.fn().mockResolvedValue({ template: '', details: { families: [] } });
+
+    const provider = new OllamaChatModelProvider(
+      makeContext(),
+      { list, show } as unknown as Ollama,
+      makeLogger(),
+    );
+
+    // Fire two concurrent requests while list() is still pending
+    const call1 = provider.provideLanguageModelChatInformation({ silent: true }, {} as unknown as CancellationToken);
+    const call2 = provider.provideLanguageModelChatInformation({ silent: true }, {} as unknown as CancellationToken);
+
+    resolveList({ models: [{ name: 'gemma3' }] });
+
+    const [result1, result2] = await Promise.all([call1, call2]);
+
+    // Both calls should get the same result
+    expect(result1.map((m: { id: string }) => m.id)).toContain('ollama:gemma3');
+    expect(result2.map((m: { id: string }) => m.id)).toContain('ollama:gemma3');
+    // And only ONE list() call should have been made
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
+  it('generation guard prevents stale in-flight fetch from overwriting fresh cache', async () => {
+    let resolveFirstList!: (v: unknown) => void;
+    const firstListPending = new Promise(resolve => {
+      resolveFirstList = resolve;
+    });
+
+    const list = vi
+      .fn()
+      .mockReturnValueOnce(firstListPending)
+      .mockResolvedValueOnce({ models: [{ name: 'llama2' }, { name: 'newmodel' }] });
+
+    const show = vi.fn().mockResolvedValue({ template: '', details: { families: [] } });
+
+    const provider = new OllamaChatModelProvider(
+      makeContext(),
+      { list, show } as unknown as Ollama,
+      makeLogger(),
+    );
+
+    // Start the first (stale) fetch
+    const firstFetch = provider.provideLanguageModelChatInformation({ silent: true }, {} as unknown as CancellationToken);
+
+    // Discard stale fetch and start a fresh one
+    provider.refreshModels();
+    const freshFetch = provider.provideLanguageModelChatInformation({ silent: true }, {} as unknown as CancellationToken);
+
+    // Fresh fetch resolves first
+    const freshResult = await freshFetch;
+    expect(freshResult.map((m: { id: string }) => m.id)).toContain('ollama:newmodel');
+
+    // Now let the stale fetch resolve with old data
+    resolveFirstList({ models: [{ name: 'llama2' }] });
+    await firstFetch;
+
+    // Query a third time — should serve from the FRESH cachedModelList, not stale
+    const thirdFetch = await provider.provideLanguageModelChatInformation({ silent: true }, {} as unknown as CancellationToken);
+    expect(thirdFetch.map((m: { id: string }) => m.id)).toContain('ollama:newmodel');
+  });
 });
 
 describe('OllamaChatModelProvider chat response', () => {
@@ -1553,6 +1622,337 @@ describe('OllamaChatModelProvider chat response', () => {
     // Total: 3 calls (1 failed + 1 retry + 1 second request without think)
     expect(chat).toHaveBeenCalledTimes(3);
     expect(chat.mock.calls[2]?.[0]?.think).toBeUndefined();
+  });
+
+  it('cloud rescue attempt 2 (reduced-context+think, no tools) succeeds when attempt 1 returns empty content', async () => {
+    const opaque500 = Object.assign(
+      new Error(
+        '{"StatusCode":500,"Status":"500 Internal Server Error","error":"Internal Server Error while thinking"}',
+      ),
+      { name: 'ResponseError', status_code: 500 },
+    );
+
+    const chat = vi
+      .fn()
+      // Streaming retries (3 throws drive into the outer catch)
+      .mockRejectedValueOnce(opaque500)
+      .mockRejectedValueOnce(opaque500)
+      .mockRejectedValueOnce(opaque500)
+      // Rescue attempt 1: reduced-context+think+tools → empty content (hasContent falsy)
+      .mockResolvedValueOnce({ message: { content: '', thinking: '', tool_calls: [] }, done: true })
+      // Rescue attempt 2: reduced-context+think → succeeds
+      .mockResolvedValueOnce({ message: { content: 'Rescued on attempt 2.' }, done: true });
+
+    vi.mocked(getCloudOllamaClient).mockResolvedValue({ chat, abort: vi.fn() } as unknown as Ollama);
+
+    const provider = new OllamaChatModelProvider(
+      makeContext(),
+      { list: vi.fn(), show: vi.fn() } as unknown as Ollama,
+      makeLogger(),
+    );
+
+    (provider as unknown as { visionByModelId: Map<string, boolean>; nativeToolCallingByModelId: Map<string, boolean>; thinkingModels: Set<string>; nonThinkingModels: Set<string>; clearModelCache(): void }).nativeToolCallingByModelId.set('kimi-k2-thinking:cloud', true);
+    (provider as unknown as { visionByModelId: Map<string, boolean>; nativeToolCallingByModelId: Map<string, boolean>; thinkingModels: Set<string>; nonThinkingModels: Set<string>; clearModelCache(): void }).nativeToolCallingByModelId.set('ollama:kimi-k2-thinking:cloud', true);
+
+    const progress = { report: vi.fn() };
+    const token = { isCancellationRequested: false };
+
+    const model = {
+      id: 'kimi-k2-thinking:cloud',
+      name: 'Kimi K2 Thinking Cloud',
+      family: '🦙 Ollama',
+      version: '1.0.0',
+      maxInputTokens: 100,
+      maxOutputTokens: 100,
+      capabilities: { imageInput: false, toolCalling: true },
+    };
+
+    const message = {
+      role: LanguageModelChatMessageRole.User,
+      name: undefined,
+      content: [new LanguageModelTextPart('hi')],
+    };
+
+    const toolDef = { name: 'search', description: 'search', inputSchema: {} };
+
+    await provider.provideLanguageModelChatResponse(
+      model as unknown as LanguageModelChatInformation,
+      [message as unknown as LanguageModelChatRequestMessage],
+      { tools: [toolDef], toolMode: 'auto' } as unknown as ProvideLanguageModelChatResponseOptions,
+      progress as unknown as Progress<LanguageModelResponsePart>,
+      token as unknown as CancellationToken,
+    );
+
+    expect(chat).toHaveBeenCalledTimes(5);
+
+    // Attempt 2 should be stream: false and have no tools
+    const attempt2Call = chat.mock.calls[4]?.[0];
+    expect(attempt2Call).toEqual(expect.objectContaining({ stream: false }));
+    expect(attempt2Call.tools).toBeUndefined();
+
+    const allValues = progress.report.mock.calls.map((c: any[]) => c[0]?.value ?? '');
+    expect(allValues.some((v: string) => v.includes('Rescued on attempt 2.'))).toBe(true);
+  });
+
+  it('cloud rescue attempt 3 (reduced-context, no think, no tools) succeeds when attempts 1-2 throw', async () => {
+    const opaque500 = Object.assign(
+      new Error(
+        '{"StatusCode":500,"Status":"500 Internal Server Error","error":"Internal Server Error while thinking"}',
+      ),
+      { name: 'ResponseError', status_code: 500 },
+    );
+
+    const chat = vi
+      .fn()
+      // Streaming retries
+      .mockRejectedValueOnce(opaque500)
+      .mockRejectedValueOnce(opaque500)
+      .mockRejectedValueOnce(opaque500)
+      // Rescue attempt 1: throws
+      .mockRejectedValueOnce(new Error('attempt 1 failed'))
+      // Rescue attempt 2: throws
+      .mockRejectedValueOnce(new Error('attempt 2 failed'))
+      // Rescue attempt 3: reduced-context, no think, no tools — succeeds
+      .mockResolvedValueOnce({ message: { content: 'Rescued on attempt 3.' }, done: true });
+
+    vi.mocked(getCloudOllamaClient).mockResolvedValue({ chat, abort: vi.fn() } as unknown as Ollama);
+
+    const provider = new OllamaChatModelProvider(
+      makeContext(),
+      { list: vi.fn(), show: vi.fn() } as unknown as Ollama,
+      makeLogger(),
+    );
+
+    (provider as unknown as { visionByModelId: Map<string, boolean>; nativeToolCallingByModelId: Map<string, boolean>; thinkingModels: Set<string>; nonThinkingModels: Set<string>; clearModelCache(): void }).nativeToolCallingByModelId.set('kimi-k2-thinking:cloud', true);
+    (provider as unknown as { visionByModelId: Map<string, boolean>; nativeToolCallingByModelId: Map<string, boolean>; thinkingModels: Set<string>; nonThinkingModels: Set<string>; clearModelCache(): void }).nativeToolCallingByModelId.set('ollama:kimi-k2-thinking:cloud', true);
+
+    const progress = { report: vi.fn() };
+    const token = { isCancellationRequested: false };
+
+    const model = {
+      id: 'kimi-k2-thinking:cloud',
+      name: 'Kimi K2 Thinking Cloud',
+      family: '🦙 Ollama',
+      version: '1.0.0',
+      maxInputTokens: 100,
+      maxOutputTokens: 100,
+      capabilities: { imageInput: false, toolCalling: true },
+    };
+
+    const message = {
+      role: LanguageModelChatMessageRole.User,
+      name: undefined,
+      content: [new LanguageModelTextPart('hi')],
+    };
+
+    const toolDef = { name: 'search', description: 'search', inputSchema: {} };
+
+    await provider.provideLanguageModelChatResponse(
+      model as unknown as LanguageModelChatInformation,
+      [message as unknown as LanguageModelChatRequestMessage],
+      { tools: [toolDef], toolMode: 'auto' } as unknown as ProvideLanguageModelChatResponseOptions,
+      progress as unknown as Progress<LanguageModelResponsePart>,
+      token as unknown as CancellationToken,
+    );
+
+    expect(chat).toHaveBeenCalledTimes(6);
+
+    // Attempt 3 should be stream: false, no think, no tools
+    const attempt3Call = chat.mock.calls[5]?.[0];
+    expect(attempt3Call).toEqual(expect.objectContaining({ stream: false }));
+    expect(attempt3Call.tools).toBeUndefined();
+    expect(attempt3Call.think).toBeUndefined();
+
+    const allValues = progress.report.mock.calls.map((c: any[]) => c[0]?.value ?? '');
+    expect(allValues.some((v: string) => v.includes('Rescued on attempt 3.'))).toBe(true);
+  });
+
+  it('cloud rescue emits error message when all 4 attempts fail', async () => {
+    const opaque500 = Object.assign(
+      new Error(
+        '{"StatusCode":500,"Status":"500 Internal Server Error","error":"Internal Server Error while thinking"}',
+      ),
+      { name: 'ResponseError', status_code: 500 },
+    );
+
+    const chat = vi
+      .fn()
+      // Streaming retries (3)
+      .mockRejectedValueOnce(opaque500)
+      .mockRejectedValueOnce(opaque500)
+      .mockRejectedValueOnce(opaque500)
+      // All 4 rescue attempts fail with empty content
+      .mockResolvedValueOnce({ message: { content: '' }, done: true })
+      .mockResolvedValueOnce({ message: { content: '' }, done: true })
+      .mockResolvedValueOnce({ message: { content: '' }, done: true })
+      .mockResolvedValueOnce({ message: { content: '' }, done: true });
+
+    vi.mocked(getCloudOllamaClient).mockResolvedValue({ chat, abort: vi.fn() } as unknown as Ollama);
+
+    const provider = new OllamaChatModelProvider(
+      makeContext(),
+      { list: vi.fn(), show: vi.fn() } as unknown as Ollama,
+      makeLogger(),
+    );
+
+    (provider as unknown as { visionByModelId: Map<string, boolean>; nativeToolCallingByModelId: Map<string, boolean>; thinkingModels: Set<string>; nonThinkingModels: Set<string>; clearModelCache(): void }).nativeToolCallingByModelId.set('kimi-k2-thinking:cloud', true);
+    (provider as unknown as { visionByModelId: Map<string, boolean>; nativeToolCallingByModelId: Map<string, boolean>; thinkingModels: Set<string>; nonThinkingModels: Set<string>; clearModelCache(): void }).nativeToolCallingByModelId.set('ollama:kimi-k2-thinking:cloud', true);
+
+    const progress = { report: vi.fn() };
+    const token = { isCancellationRequested: false };
+
+    const model = {
+      id: 'kimi-k2-thinking:cloud',
+      name: 'Kimi K2 Thinking Cloud',
+      family: '🦙 Ollama',
+      version: '1.0.0',
+      maxInputTokens: 100,
+      maxOutputTokens: 100,
+      capabilities: { imageInput: false, toolCalling: true },
+    };
+
+    const message = {
+      role: LanguageModelChatMessageRole.User,
+      name: undefined,
+      content: [new LanguageModelTextPart('hi')],
+    };
+
+    const toolDef = { name: 'search', description: 'search', inputSchema: {} };
+
+    await provider.provideLanguageModelChatResponse(
+      model as unknown as LanguageModelChatInformation,
+      [message as unknown as LanguageModelChatRequestMessage],
+      { tools: [toolDef], toolMode: 'auto' } as unknown as ProvideLanguageModelChatResponseOptions,
+      progress as unknown as Progress<LanguageModelResponsePart>,
+      token as unknown as CancellationToken,
+    );
+
+    // All 4 rescue attempts exhausted plus the 3 streaming retries
+    expect(chat).toHaveBeenCalledTimes(7);
+
+    // An error message should be emitted to progress when all rescue attempts fail
+    const allValues = progress.report.mock.calls.map((c: any[]) => c[0]?.value ?? '');
+    expect(allValues.some((v: string) => v.startsWith('Error:'))).toBe(true);
+  });
+
+  it('cloud rescue is skipped when cancellation is requested before rescue', async () => {
+    const opaque500 = Object.assign(
+      new Error(
+        '{"StatusCode":500,"Status":"500 Internal Server Error","error":"Internal Server Error while thinking"}',
+      ),
+      { name: 'ResponseError', status_code: 500 },
+    );
+
+    const chat = vi
+      .fn()
+      .mockRejectedValueOnce(opaque500)
+      .mockRejectedValueOnce(opaque500)
+      .mockRejectedValueOnce(opaque500);
+
+    vi.mocked(getCloudOllamaClient).mockResolvedValue({ chat, abort: vi.fn() } as unknown as Ollama);
+
+    const provider = new OllamaChatModelProvider(
+      makeContext(),
+      { list: vi.fn(), show: vi.fn() } as unknown as Ollama,
+      makeLogger(),
+    );
+
+    (provider as unknown as { visionByModelId: Map<string, boolean>; nativeToolCallingByModelId: Map<string, boolean>; thinkingModels: Set<string>; nonThinkingModels: Set<string>; clearModelCache(): void }).nativeToolCallingByModelId.set('kimi-k2-thinking:cloud', true);
+    (provider as unknown as { visionByModelId: Map<string, boolean>; nativeToolCallingByModelId: Map<string, boolean>; thinkingModels: Set<string>; nonThinkingModels: Set<string>; clearModelCache(): void }).nativeToolCallingByModelId.set('ollama:kimi-k2-thinking:cloud', true);
+
+    const progress = { report: vi.fn() };
+    // Cancellation is already requested
+    const token = { isCancellationRequested: true };
+
+    const model = {
+      id: 'kimi-k2-thinking:cloud',
+      name: 'Kimi K2 Thinking Cloud',
+      family: '🦙 Ollama',
+      version: '1.0.0',
+      maxInputTokens: 100,
+      maxOutputTokens: 100,
+      capabilities: { imageInput: false, toolCalling: true },
+    };
+
+    const message = {
+      role: LanguageModelChatMessageRole.User,
+      name: undefined,
+      content: [new LanguageModelTextPart('hi')],
+    };
+
+    const toolDef = { name: 'search', description: 'search', inputSchema: {} };
+
+    await provider.provideLanguageModelChatResponse(
+      model as unknown as LanguageModelChatInformation,
+      [message as unknown as LanguageModelChatRequestMessage],
+      { tools: [toolDef], toolMode: 'auto' } as unknown as ProvideLanguageModelChatResponseOptions,
+      progress as unknown as Progress<LanguageModelResponsePart>,
+      token as unknown as CancellationToken,
+    );
+
+    // Only the 3 streaming retries — rescue attempts must NOT be made
+    expect(chat).toHaveBeenCalledTimes(3);
+  });
+
+  it('cloud rescue is not triggered for non-cloud model 500 errors', async () => {
+    const opaque500 = Object.assign(
+      new Error(
+        '{"StatusCode":500,"Status":"500 Internal Server Error","error":"Internal Server Error while thinking"}',
+      ),
+      { name: 'ResponseError', status_code: 500 },
+    );
+
+    const chat = vi
+      .fn()
+      .mockRejectedValueOnce(opaque500)
+      // Retry without think
+      .mockResolvedValueOnce(
+        (async function* () {
+          yield { message: { content: 'responded without thinking' }, done: true };
+        })(),
+      );
+
+    vi.mocked(getOllamaClient).mockResolvedValue({ chat, abort: vi.fn() } as unknown as Ollama);
+
+    const provider = new OllamaChatModelProvider(
+      makeContext(),
+      { list: vi.fn(), show: vi.fn() } as unknown as Ollama,
+      makeLogger(),
+    );
+
+    const progress = { report: vi.fn() };
+    const token = { isCancellationRequested: false };
+
+    // Local model (no ':cloud' suffix) — cloud rescue must NOT be triggered
+    const model = {
+      id: 'qwen3:latest',
+      name: 'Qwen3',
+      family: '🦙 Ollama',
+      version: '1.0.0',
+      maxInputTokens: 100,
+      maxOutputTokens: 100,
+      capabilities: { imageInput: false, toolCalling: false },
+    };
+
+    const message = {
+      role: LanguageModelChatMessageRole.User,
+      name: undefined,
+      content: [new LanguageModelTextPart('hi')],
+    };
+
+    await provider.provideLanguageModelChatResponse(
+      model as unknown as LanguageModelChatInformation,
+      [message as unknown as LanguageModelChatRequestMessage],
+      { tools: [], toolMode: 'auto' } as unknown as ProvideLanguageModelChatResponseOptions,
+      progress as unknown as Progress<LanguageModelResponsePart>,
+      token as unknown as CancellationToken,
+    );
+
+    // Only 2 chat calls (initial + think retry) — no rescue attempts
+    expect(chat).toHaveBeenCalledTimes(2);
+
+    const allValues = progress.report.mock.calls.map((c: any[]) => c[0]?.value ?? '');
+    expect(allValues.some((v: string) => v.includes('responded without thinking'))).toBe(true);
   });
 });
 
