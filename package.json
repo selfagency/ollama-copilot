@@ -36,6 +36,9 @@
   "main": "./dist/extension.js",
   "scripts": {
     "compile": "task compile",
+    "docs:dev": "vitepress dev",
+    "docs:build": "vitepress build",
+    "docs:preview": "vitepress preview",
     "prepare": "husky",
     "test": "task unit-tests",
     "test:coverage": "task unit-test-coverage",
@@ -65,6 +68,7 @@
     "oxlint-tsgolint": "^0.16.0",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
+    "vitepress": "^1.6.4",
     "vitest": "^4.0.18",
     "zx": "^8.8.5"
   },
