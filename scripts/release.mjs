@@ -158,6 +158,13 @@ async function main() {
     }
   }
 
+  // Resolve VS Code Marketplace PAT.
+  const vscePat = process.env.VSCE_PAT ?? '';
+  if (!vscePat) {
+    console.error('❌ No marketplace token found. Set VSCE_PAT to your VS Code Marketplace personal access token.');
+    process.exit(1);
+  }
+
   const octokit = new Octokit({ auth: githubToken });
 
   // --- Precondition checks --------------------------------------------------
@@ -302,8 +309,8 @@ async function main() {
     // --- Pre-release: publish directly, no tag or GitHub release -------------
 
     console.log(`📦 Publishing pre-release ${tag} to VS Code Marketplace...`);
-    await $`pnpm run package`;
-    await $`pnpm dlx @vscode/vsce publish --pre-release --no-dependencies`;
+    await $`pnpm dlx @vscode/vsce package --no-dependencies`;
+    await $`pnpm dlx @vscode/vsce publish --pre-release --no-dependencies --pat ${vscePat}`;
 
     releaseDone = true;
     console.log(`✅ Pre-release complete: ${tag} published to VS Code Marketplace.`);
