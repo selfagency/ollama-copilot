@@ -80,7 +80,7 @@
       "task precommit -- "
     ],
     "**/*.{json,yml,yaml,md}": [
-      "oxfmt --write"
+      "oxfmt --write -- "
     ]
   },
   "contributes": {
