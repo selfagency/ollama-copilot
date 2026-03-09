@@ -221,6 +221,52 @@ export async function* chatCompletionsStream(
   }
 }
 
+/**
+ * Eagerly initiates an OpenAI-compat streaming request and returns a
+ * generator that yields parsed SSE chunks. Unlike `chatCompletionsStream`
+ * (an `async function*`) the HTTP connection is established before this
+ * function resolves, so callers can catch connection/HTTP errors with a
+ * normal `try/catch` rather than having to handle them during iteration.
+ */
+export async function initiateChatCompletionsStream(
+  options: OpenAICompatRequestOptions,
+): Promise<AsyncGenerator<OpenAICompatChatCompletionChunk>> {
+  const fetchFn = options.fetchFn ?? fetch;
+  const url = createOpenAICompatUrl(options.baseUrl);
+
+  const response = await fetchFn(url, {
+    method: 'POST',
+    headers: buildOpenAICompatHeaders(options.authToken),
+    body: JSON.stringify({ ...options.request, stream: true }),
+    signal: options.signal,
+  });
+
+  if (!response.ok) {
+    const bodyText = await readErrorBody(response);
+    throw new Error(`OpenAI-compat stream request failed (${response.status}): ${bodyText}`.trim());
+  }
+
+  if (!response.body) {
+    throw new Error('OpenAI-compat stream request failed: response body is empty');
+  }
+
+  const body = response.body;
+  return (async function* (): AsyncGenerator<OpenAICompatChatCompletionChunk> {
+    for await (const payload of parseSseDataPayloadsFromTextChunks(toTextChunks(body))) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(payload);
+      } catch {
+        continue;
+      }
+
+      if (parsed && typeof parsed === 'object') {
+        yield parsed as OpenAICompatChatCompletionChunk;
+      }
+    }
+  })();
+}
+
 export async function chatCompletionsOnce(
   options: OpenAICompatRequestOptions,
 ): Promise<OpenAICompatChatCompletionResponse> {

@@ -36,10 +36,11 @@ import {
   sanitizeNonStreamingModelOutput,
   splitLeadingXmlContextBlocks,
 } from './formatting';
-import { chatCompletionsOnce, chatCompletionsStream } from './openaiCompat.js';
+import { chatCompletionsOnce, chatCompletionsStream, initiateChatCompletionsStream } from './openaiCompat.js';
 import { ollamaMessagesToOpenAICompat, ollamaToolsToOpenAICompat } from './openaiCompatMapping.js';
 import { isToolsNotSupportedError, normalizeToolParameters } from './toolUtils.js';
 import { ThinkingParser } from './thinkingParser.js';
+import { truncateMessages } from './contextUtils.js';
 
 const MODEL_LIST_REFRESH_MIN_INTERVAL_MS = 5_000;
 const MODEL_INFO_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -542,7 +543,10 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
       const baseUrl = getOllamaHost();
       const authToken = await getOllamaAuthToken(this.context);
 
-      stream = chatCompletionsStream({
+      // Use initiateChatCompletionsStream (eager fetch) so that any connection
+      // or HTTP error is thrown here, allowing the catch below to fall back to
+      // fallbackClient.chat() rather than surfacing during generator iteration.
+      stream = await initiateChatCompletionsStream({
         baseUrl,
         authToken,
         signal,
@@ -709,7 +713,10 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
 
     // Convert VS Code messages to Ollama format, stripping images for non-vision models
     const supportsVision = this.visionByModelId.get(model.id) ?? this.visionByModelId.get(runtimeModelId) ?? false;
-    const ollamaMessages = this.toOllamaMessages(messages, supportsVision);
+    const ollamaMessages = truncateMessages(
+      this.toOllamaMessages(messages, supportsVision) as Message[],
+      model.maxInputTokens,
+    );
 
     // Build tools array if supported
     let tools: Parameters<typeof this.client.chat>[0]['tools'] | undefined;
@@ -739,9 +746,13 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
     let shouldThink =
       (this.thinkingModels.has(runtimeModelId) || isThinkingModelId(runtimeModelId)) &&
       !this.nonThinkingModels.has(runtimeModelId);
+    // Preserve initial value for the rescue ladder: even if retries downgrade
+    // shouldThink, the first rescue attempts should still try with think=true.
+    const initialShouldThink = shouldThink;
 
     try {
       let response: AsyncIterable<ChatResponse>;
+      let effectiveTools = tools;
 
       // Choose API path: native Ollama SDK for local models, OpenAI-compat for cloud
       const streamFn = isCloudModel
@@ -764,6 +775,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
         ) {
           this.thinkingModels.delete(runtimeModelId);
           this.nonThinkingModels.add(runtimeModelId);
+          shouldThink = false;
           this.outputChannel.debug(`[client] retrying without thinking support for ${runtimeModelId}`);
           try {
             response = await streamFn(false, tools);
@@ -776,6 +788,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
               this.outputChannel.warn(
                 `[client] cloud model ${runtimeModelId} failed with tools after think retry; retrying without tools`,
               );
+              effectiveTools = undefined;
               response = await streamFn(false, undefined);
             } else {
               throw retryError;
@@ -783,9 +796,11 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
           }
         } else if (isCloudModel && tools && this.isThinkingInternalServerError(innerError)) {
           this.outputChannel.warn(`[client] cloud model ${runtimeModelId} failed with tools; retrying without tools`);
+          effectiveTools = undefined;
           response = await streamFn(shouldThink, undefined);
         } else if (tools && isToolsNotSupportedError(innerError)) {
           this.outputChannel.warn(`[client] model ${runtimeModelId} rejected tools; retrying without tools`);
+          effectiveTools = undefined;
           response = await streamFn(shouldThink, undefined);
         } else {
           throw innerError;
@@ -829,7 +844,6 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
             if (!thinkingStarted) {
               progress.report(new LanguageModelTextPart('\n\n💭 **Thinking**\n\n'));
               thinkingStarted = true;
-              emittedOutput = true;
             }
             progress.report(new LanguageModelTextPart(thinkingChunk));
             emittedOutput = true;
@@ -896,9 +910,21 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
 
         const fallbackFn = isCloudModel
           ? (think: boolean) =>
-              this.openAiCompatChatOnce(runtimeModelId, ollamaMessages as Message[], tools, think, perRequestClient)
+              this.openAiCompatChatOnce(
+                runtimeModelId,
+                ollamaMessages as Message[],
+                effectiveTools,
+                think,
+                perRequestClient,
+              )
           : (think: boolean) =>
-              this.nativeSdkChatOnce(runtimeModelId, ollamaMessages as Message[], tools, think, perRequestClient);
+              this.nativeSdkChatOnce(
+                runtimeModelId,
+                ollamaMessages as Message[],
+                effectiveTools,
+                think,
+                perRequestClient,
+              );
 
         const fallback = await fallbackFn(shouldThink);
 
@@ -942,13 +968,13 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
           {
             label: 'reduced-context+think+tools',
             messages: this.buildReducedCloudRescueMessages(rescueBaseMessages),
-            think: shouldThink,
+            think: initialShouldThink,
             tools,
           },
           {
             label: 'reduced-context+think',
             messages: this.buildReducedCloudRescueMessages(rescueBaseMessages),
-            think: shouldThink,
+            think: initialShouldThink,
             tools: undefined,
           },
           {

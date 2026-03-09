@@ -15,10 +15,11 @@ import {
   splitLeadingXmlContextBlocks,
 } from './formatting';
 import { registerModelfileManager } from './modelfiles.js';
-import { chatCompletionsOnce, chatCompletionsStream } from './openaiCompat.js';
+import { chatCompletionsOnce, chatCompletionsStream, initiateChatCompletionsStream } from './openaiCompat.js';
 import { ollamaMessagesToOpenAICompat, ollamaToolsToOpenAICompat } from './openaiCompatMapping.js';
 import { isThinkingModelId, OllamaChatModelProvider } from './provider.js';
 import { ThinkingParser } from './thinkingParser.js';
+import { truncateMessages } from './contextUtils.js';
 import { registerSidebar, type SidebarProfilingSnapshot } from './sidebar.js';
 import {
   buildXmlToolSystemPrompt,
@@ -106,7 +107,10 @@ async function openAiCompatStreamChat(params: {
     const baseUrl = getOllamaHost();
     const authToken = params.extensionContext ? await getOllamaAuthToken(params.extensionContext) : undefined;
 
-    const stream = chatCompletionsStream({
+    // Use initiateChatCompletionsStream (eager fetch) so that any connection
+    // or HTTP error is thrown here, allowing the catch below to fall back to
+    // effectiveClient.chat() rather than surfacing during generator iteration.
+    const stream = await initiateChatCompletionsStream({
       baseUrl,
       authToken,
       signal: params.signal,
@@ -615,6 +619,14 @@ export async function handleChatRequest(
         ollamaMessages.unshift({ role: 'system', content: dedupedContextParts.join('\n\n') });
       }
 
+      // Truncate messages to fit within the model's context window.
+      // VS Code injects 100K+ token prompts; small models cannot handle this.
+      const maxInputTokens = request.model.maxInputTokens ?? 0;
+      if (maxInputTokens > 0) {
+        const truncated = truncateMessages(ollamaMessages as Message[], maxInputTokens);
+        ollamaMessages.splice(0, ollamaMessages.length, ...truncated);
+      }
+
       // Tool invocation loop — only when VS Code tools and an invocation token are available.
       const vscodeLmTools = vscode.lm.tools ?? [];
       let useXmlFallback = false;
@@ -828,6 +840,7 @@ export async function handleChatRequest(
           chatError.message.toLowerCase().includes('does not support thinking');
 
         if (supportsThinkingError) {
+          shouldThink = false;
           response = await streamChatFn(false);
         } else if (isToolsNotSupportedError(chatError)) {
           outputChannel?.warn(`[client] model ${modelId} rejected tools; retrying stream without tools/thinking`);

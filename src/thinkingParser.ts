@@ -77,7 +77,7 @@ export class ThinkingParser {
           const thinking = this.acc.slice(0, idx);
           const afterRaw = this.acc.slice(idx + this.closingTag.length);
           const after = afterRaw.trimStart();
-          this.acc = after;
+          this.acc = ''; // clear — after is returned directly, not re-emitted
           // Only enter whitespace-eating state when there was trailing whitespace
           // on the same chunk as </think>. If afterRaw was empty, go straight to
           // thinkingDone so the next chunk's leading space is preserved.
