@@ -29,24 +29,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     outputs:
-      src: ${{ steps.filter.outputs.src }}
+      relevant: ${{ steps.filter.outputs.relevant }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v3
         id: filter
         with:
           filters: |
-            src:
+            relevant:
               - 'src/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
 
   test:
     name: Test
     needs: changes
-    # Run tests when source changes are detected, when manually dispatched,
+    # Run tests when release-relevant files change, when manually dispatched,
     # or when a release tag (v*) is pushed. This ensures release-tag runs
     # execute the full test matrix instead of being skipped by the paths
     # filter.
-    if: needs.changes.outputs.src == 'true' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    if: needs.changes.outputs.relevant == 'true' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
