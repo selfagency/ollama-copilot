@@ -567,12 +567,14 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
         const choice = chunk.choices?.[0];
         const delta = choice?.delta;
         const content = typeof delta?.content === 'string' ? delta.content : '';
+        const thinking = typeof delta?.reasoning === 'string' ? delta.reasoning : undefined;
         const mappedToolCalls = provider.mapOpenAiToolCallsToOllamaLike(delta?.tool_calls);
 
         const out: ChatResponse = {
           message: {
             role: 'assistant',
             content,
+            ...(thinking ? { thinking } : {}),
             ...(mappedToolCalls ? { tool_calls: mappedToolCalls } : {}),
           },
           done: choice?.finish_reason != null,
@@ -619,16 +621,50 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
 
     const choice = response.choices?.[0];
     const content = typeof choice?.message?.content === 'string' ? choice.message.content : '';
+    const thinking = typeof choice?.message?.reasoning === 'string' ? choice.message.reasoning : undefined;
     const mappedToolCalls = this.mapOpenAiToolCallsToOllamaLike(choice?.message?.tool_calls);
 
     return {
       message: {
         role: 'assistant',
         content,
+        ...(thinking ? { thinking } : {}),
         ...(mappedToolCalls ? { tool_calls: mappedToolCalls } : {}),
       },
       done: true,
     } as ChatResponse;
+  }
+
+  private async nativeSdkStreamChat(
+    runtimeModelId: string,
+    messages: Message[],
+    tools: Parameters<typeof this.client.chat>[0]['tools'] | undefined,
+    shouldThink: boolean,
+    client: Ollama,
+  ): Promise<AsyncIterable<ChatResponse>> {
+    return client.chat({
+      model: runtimeModelId,
+      messages,
+      stream: true,
+      tools,
+      ...(shouldThink ? { think: true } : {}),
+    });
+  }
+
+  private async nativeSdkChatOnce(
+    runtimeModelId: string,
+    messages: Message[],
+    tools: Parameters<typeof this.client.chat>[0]['tools'] | undefined,
+    shouldThink: boolean,
+    client: Ollama,
+  ): Promise<ChatResponse> {
+    return (await client.chat({
+      model: runtimeModelId,
+      messages,
+      stream: false,
+      tools,
+      ...(shouldThink ? { think: true } : {}),
+    })) as ChatResponse;
   }
 
   /**
