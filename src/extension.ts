@@ -18,6 +18,7 @@ import { registerModelfileManager } from './modelfiles.js';
 import { chatCompletionsOnce, chatCompletionsStream } from './openaiCompat.js';
 import { ollamaMessagesToOpenAICompat, ollamaToolsToOpenAICompat } from './openaiCompatMapping.js';
 import { isThinkingModelId, OllamaChatModelProvider } from './provider.js';
+import { ThinkingParser } from './thinkingParser.js';
 import { registerSidebar, type SidebarProfilingSnapshot } from './sidebar.js';
 import {
   buildXmlToolSystemPrompt,
@@ -840,6 +841,9 @@ export async function handleChatRequest(
       let thinkingStarted = false;
       let contentStarted = false;
       const xmlFilter = createXmlStreamFilter();
+      // Only parse <think> tags client-side on the cloud/OpenAI-compat path.
+      // Native SDK path gets message.thinking pre-split by Ollama's server-side parser.
+      const thinkingParser = isCloudModel && shouldThink ? new ThinkingParser() : null;
 
       for await (const chunk of response) {
         if (token.isCancellationRequested) {
@@ -855,15 +859,32 @@ export async function handleChatRequest(
         }
 
         if (chunk.message?.content) {
-          if (thinkingStarted && !contentStarted) {
-            stream.markdown('\n\n---\n\n*Response*\n\n');
-            contentStarted = true;
+          let thinkingChunk = '';
+          let contentChunk = chunk.message.content;
+
+          if (thinkingParser) {
+            [thinkingChunk, contentChunk] = thinkingParser.addContent(chunk.message.content);
           }
-          outputChannel?.debug(`[client] @ollama chunk: ${chunk.message.content.substring(0, 50)}`);
-          // Filter context tags using SAX parser - handles incomplete tags across chunk boundaries
-          const cleanContent = xmlFilter.write(chunk.message.content);
-          if (cleanContent) {
-            stream.markdown(cleanContent);
+
+          if (thinkingChunk) {
+            if (!thinkingStarted) {
+              stream.markdown('\n\n*Thinking*\n\n');
+              thinkingStarted = true;
+            }
+            stream.markdown(thinkingChunk);
+          }
+
+          if (contentChunk) {
+            if (thinkingStarted && !contentStarted) {
+              stream.markdown('\n\n---\n\n*Response*\n\n');
+              contentStarted = true;
+            }
+            outputChannel?.debug(`[client] @ollama chunk: ${contentChunk.substring(0, 50)}`);
+            // Filter context tags using SAX parser - handles incomplete tags across chunk boundaries
+            const cleanContent = xmlFilter.write(contentChunk);
+            if (cleanContent) {
+              stream.markdown(cleanContent);
+            }
           }
         }
 
