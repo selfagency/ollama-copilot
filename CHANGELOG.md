@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-03-09
+
+## What's Changed
+
+- fix: call handleBuiltInOllamaConflict during extension activation by @selfagency in https://github.com/selfagency/opilot/pull/51
+
+**Full Changelog**: https://github.com/selfagency/opilot/compare/v0.1.5-pre...v0.1.6-pre
+
+_Source: changes from v0.1.5-pre to v0.1.6-pre._
+
 ## [0.1.5] - 2026-03-09
 
 ## What's Changed
