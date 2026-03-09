@@ -711,8 +711,10 @@ export async function handleChatRequest(
                   },
                   token,
                 );
-              } catch { /* ignore — task_complete failure should not block response */ }
-              continue;
+              } catch {
+                /* ignore — task_complete failure should not block response */
+              }
+              break;
             }
             const toolInput = toolCall.function.arguments;
             let resultText: string;
@@ -1033,7 +1035,9 @@ export async function handleChatRequest(
               { input: tc.input as Record<string, unknown>, toolInvocationToken: request.toolInvocationToken },
               token,
             );
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
         break;
       }
