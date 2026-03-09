@@ -560,6 +560,41 @@ describe('OllamaChatModelProvider error handling', () => {
     );
     expect(thirdFetch.map((m: { id: string }) => m.id)).toContain('ollama:newmodel');
   });
+
+  it('prefetchModels() eagerly populates capability maps before first chat request', async () => {
+    const show = vi.fn().mockResolvedValue({
+      capabilities: ['tools', 'thinking'],
+      template: '',
+      details: { families: [] },
+    });
+    const list = vi.fn().mockResolvedValue({ models: [{ name: 'deepseek-r1:8b' }] });
+
+    const provider = new OllamaChatModelProvider(makeContext(), { list, show } as unknown as Ollama, makeLogger());
+
+    // Before prefetch the capability maps are empty
+    const models0 = await provider.provideLanguageModelChatInformation(
+      { silent: true },
+      {} as unknown as CancellationToken,
+    );
+    // Reset so we can confirm prefetch populates independently
+    (provider as unknown as { clearModelCache: () => void }).clearModelCache?.();
+
+    provider.prefetchModels();
+    // Wait deterministically for the prefetch to call show()
+    await vi.waitFor(() => {
+      expect(show).toHaveBeenCalled();
+    });
+
+    expect(list).toHaveBeenCalled();
+    expect(show).toHaveBeenCalledWith({ model: 'deepseek-r1:8b' });
+    // After prefetch the model should be in the cache
+    const models1 = await provider.provideLanguageModelChatInformation(
+      { silent: true },
+      {} as unknown as CancellationToken,
+    );
+    expect(models1.map((m: { id: string }) => m.id)).toContain('ollama:deepseek-r1:8b');
+    void models0;
+  });
 });
 
 describe('OllamaChatModelProvider chat response', () => {
@@ -1240,7 +1275,7 @@ describe('OllamaChatModelProvider chat response', () => {
   });
 
   it('retries without think when model returns ResponseError "does not support thinking"', async () => {
-    const thinkingError = Object.assign(new Error('"cogito:latest" does not support thinking'), {
+    const thinkingError = Object.assign(new Error('"lfm2.5-thinking:1.2b" does not support thinking'), {
       name: 'ResponseError',
       status_code: 400,
     });
@@ -1266,8 +1301,8 @@ describe('OllamaChatModelProvider chat response', () => {
     const token = { isCancellationRequested: false };
 
     const model = {
-      id: 'cogito:latest',
-      name: 'Cogito Latest',
+      id: 'lfm2.5-thinking:1.2b',
+      name: 'LFM 2.5 Thinking 1.2B',
       family: '🦙 Ollama',
       version: '1.0.0',
       maxInputTokens: 100,
@@ -1289,7 +1324,7 @@ describe('OllamaChatModelProvider chat response', () => {
       token as unknown as CancellationToken,
     );
 
-    // First call should have used think: true (cogito matches the regex)
+    // First call should have used think: true (lfm2.5-thinking matches the regex)
     expect(chat).toHaveBeenCalledTimes(2);
     expect(chat.mock.calls[0]?.[0]?.think).toBe(true);
     // Second call (retry) should not pass think
@@ -1332,8 +1367,8 @@ describe('OllamaChatModelProvider chat response', () => {
     const token = { isCancellationRequested: false };
 
     const model = {
-      id: 'cogito:cloud',
-      name: 'Kimi K2 Thinking Cloud',
+      id: 'lfm2.5-thinking:cloud',
+      name: 'LFM 2.5 Thinking Cloud',
       family: '🦙 Ollama',
       version: '1.0.0',
       maxInputTokens: 100,
@@ -1455,7 +1490,7 @@ describe('OllamaChatModelProvider chat response', () => {
 
   it('retries without tools when model returns does not support tools', async () => {
     const toolsUnsupportedError = Object.assign(
-      new Error('registry.ollama.ai/library/stablelm-zephyr:latest does not support tools'),
+      new Error('registry.ollama.ai/library/smollm2:latest does not support tools'),
       {
         name: 'ResponseError',
         status_code: 400,
@@ -1488,7 +1523,7 @@ describe('OllamaChatModelProvider chat response', () => {
         nonThinkingModels: Set<string>;
         clearModelCache(): void;
       }
-    ).nativeToolCallingByModelId.set('stablelm-zephyr:latest', true);
+    ).nativeToolCallingByModelId.set('smollm2:latest', true);
     (
       provider as unknown as {
         visionByModelId: Map<string, boolean>;
@@ -1497,14 +1532,14 @@ describe('OllamaChatModelProvider chat response', () => {
         nonThinkingModels: Set<string>;
         clearModelCache(): void;
       }
-    ).nativeToolCallingByModelId.set('ollama:stablelm-zephyr:latest', true);
+    ).nativeToolCallingByModelId.set('ollama:smollm2:latest', true);
 
     const progress = { report: vi.fn() };
     const token = { isCancellationRequested: false };
 
     const model = {
-      id: 'stablelm-zephyr:latest',
-      name: 'StableLM Zephyr',
+      id: 'smollm2:latest',
+      name: 'SmolLM2',
       family: '🦙 Ollama',
       version: '1.0.0',
       maxInputTokens: 100,
@@ -1747,7 +1782,7 @@ describe('OllamaChatModelProvider chat response', () => {
   });
 
   it('does not retry again on second call when model is in nonThinkingModels', async () => {
-    const thinkingError = Object.assign(new Error('"cogito:latest" does not support thinking'), {
+    const thinkingError = Object.assign(new Error('"qwen3:latest" does not support thinking'), {
       name: 'ResponseError',
       status_code: 400,
     });
@@ -1778,8 +1813,8 @@ describe('OllamaChatModelProvider chat response', () => {
     const token = { isCancellationRequested: false };
 
     const model = {
-      id: 'cogito:latest',
-      name: 'Cogito Latest',
+      id: 'qwen3:latest',
+      name: 'Qwen3 Latest',
       family: '🦙 Ollama',
       version: '1.0.0',
       maxInputTokens: 100,

@@ -98,6 +98,7 @@ describe('activate', () => {
     vi.doMock('./provider.js', () => ({
       OllamaChatModelProvider: class {
         setAuthToken = vi.fn();
+        prefetchModels = vi.fn();
       },
     }));
 
@@ -207,6 +208,7 @@ describe('activate', () => {
     vi.doMock('./provider.js', () => ({
       OllamaChatModelProvider: class {
         setAuthToken = vi.fn();
+        prefetchModels = vi.fn();
       },
     }));
 
@@ -325,6 +327,7 @@ describe('activate', () => {
     vi.doMock('./provider.js', () => ({
       OllamaChatModelProvider: class {
         setAuthToken = vi.fn();
+        prefetchModels = vi.fn();
       },
     }));
 
@@ -451,6 +454,7 @@ describe('activate', () => {
     vi.doMock('./provider.js', () => ({
       OllamaChatModelProvider: class {
         setAuthToken = vi.fn();
+        prefetchModels = vi.fn();
       },
     }));
 
@@ -572,6 +576,7 @@ describe('activate', () => {
     vi.doMock('./provider.js', () => ({
       OllamaChatModelProvider: class {
         setAuthToken = vi.fn();
+        prefetchModels = vi.fn();
       },
     }));
 
@@ -681,6 +686,7 @@ describe('activate', () => {
     vi.doMock('./provider.js', () => ({
       OllamaChatModelProvider: class {
         setAuthToken = vi.fn();
+        prefetchModels = vi.fn();
       },
     }));
 
@@ -788,6 +794,7 @@ describe('activate', () => {
     vi.doMock('./provider.js', () => ({
       OllamaChatModelProvider: class {
         setAuthToken = vi.fn();
+        prefetchModels = vi.fn();
       },
     }));
 
@@ -912,6 +919,7 @@ describe('activate', () => {
     vi.doMock('./provider.js', () => ({
       OllamaChatModelProvider: class {
         setAuthToken = vi.fn();
+        prefetchModels = vi.fn();
       },
     }));
 
@@ -1025,6 +1033,7 @@ describe('activate', () => {
     vi.doMock('./provider.js', () => ({
       OllamaChatModelProvider: class {
         setAuthToken = vi.fn();
+        prefetchModels = vi.fn();
       },
     }));
 
@@ -1075,6 +1084,7 @@ describe('handleChatRequest direct Ollama path (thinking + tools)', () => {
     vi.doMock('./provider.js', () => ({
       OllamaChatModelProvider: class {
         setAuthToken = vi.fn();
+        prefetchModels = vi.fn();
       },
       isThinkingModelId: (id: string) => /(qwen3|qwq|deepseek-?r1|cogito|phi\d+-reasoning)/i.test(id),
     }));
@@ -1146,6 +1156,7 @@ describe('handleChatRequest direct Ollama path (thinking + tools)', () => {
     vi.doMock('./provider.js', () => ({
       OllamaChatModelProvider: class {
         setAuthToken = vi.fn();
+        prefetchModels = vi.fn();
       },
       isThinkingModelId: (id: string) => /(qwen3|qwq|deepseek-?r1|cogito|phi\d+-reasoning)/i.test(id),
     }));
@@ -1210,6 +1221,7 @@ describe('handleChatRequest direct Ollama path (thinking + tools)', () => {
     vi.doMock('./provider.js', () => ({
       OllamaChatModelProvider: class {
         setAuthToken = vi.fn();
+        prefetchModels = vi.fn();
       },
       isThinkingModelId: (id: string) => /(qwen3|qwq|deepseek-?r1|cogito|phi\d+-reasoning)/i.test(id),
     }));
@@ -1282,6 +1294,7 @@ describe('handleChatRequest direct Ollama path (thinking + tools)', () => {
     vi.doMock('./provider.js', () => ({
       OllamaChatModelProvider: class {
         setAuthToken = vi.fn();
+        prefetchModels = vi.fn();
       },
       isThinkingModelId: () => false,
     }));
@@ -1356,6 +1369,7 @@ describe('handleChatRequest direct Ollama path (thinking + tools)', () => {
     vi.doMock('./provider.js', () => ({
       OllamaChatModelProvider: class {
         setAuthToken = vi.fn();
+        prefetchModels = vi.fn();
       },
       isThinkingModelId: () => false,
     }));
@@ -2184,6 +2198,7 @@ describe('activate noopLogger', () => {
     vi.doMock('./provider.js', () => ({
       OllamaChatModelProvider: class {
         setAuthToken = vi.fn();
+        prefetchModels = vi.fn();
       },
     }));
 
@@ -2323,6 +2338,7 @@ describe('startLogStreaming inner callbacks', () => {
     vi.doMock('./provider.js', () => ({
       OllamaChatModelProvider: class {
         setAuthToken = vi.fn();
+        prefetchModels = vi.fn();
       },
     }));
 
