@@ -1186,6 +1186,9 @@ export async function activate(context: vscode.ExtensionContext) {
   // lazily call provideLanguageModelChatInformation.
   provider.prefetchModels();
 
+  // Detect and prompt to disable VS Code's built-in Ollama provider
+  void handleBuiltInOllamaConflict(undefined, undefined, undefined, undefined, context);
+
   const sidebarRegistration = registerSidebar(context, client, diagnostics, () => provider.refreshModels());
 
   const subscriptions: vscode.Disposable[] = [
