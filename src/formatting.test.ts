@@ -186,6 +186,13 @@ describe('splitLeadingXmlContextBlocks', () => {
     expect(result.contextBlocks).toEqual([]);
     expect(result.content).toBe('hello <user_info>not-context</user_info>');
   });
+
+  it('does not elevate unknown leading tags into context blocks', () => {
+    const input = '<note>user content</note>hello';
+    const result = splitLeadingXmlContextBlocks(input);
+    expect(result.contextBlocks).toEqual([]);
+    expect(result.content).toBe('<note>user content</note>hello');
+  });
 });
 
 describe('dedupeXmlContextBlocksByTag', () => {
@@ -203,5 +210,12 @@ describe('dedupeXmlContextBlocksByTag', () => {
       '<environment_info>new-env</environment_info>',
       '<user_info>u1</user_info>',
     ]);
+  });
+
+  it('preserves relative order when a single entry contains multiple tags', () => {
+    const blocks = ['<selection>s1</selection><workspace_info>w1</workspace_info>', '<selection>s2</selection>'];
+
+    const deduped = dedupeXmlContextBlocksByTag(blocks);
+    expect(deduped).toEqual(['<workspace_info>w1</workspace_info>', '<selection>s2</selection>']);
   });
 });

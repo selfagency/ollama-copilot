@@ -1028,10 +1028,11 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
    *
    * Algorithm:
    * 1. For each user message, if the content starts with `<`, greedily consume
-   *    consecutive XML tags from the *very beginning* (index 0). As soon as the
-   *    regex match is not at position 0, extraction stops. This ensures only
-   *    leading IDE-injected blocks are elevated to system context; XML that
-   *    appears mid-message is left in the user turn as-is.
+   *    consecutive XML tags from the *very beginning* (index 0) **only when the
+   *    tag name is in the known context-tag allowlist**. As soon as the regex
+   *    match is not at position 0 (or the tag is not allowlisted), extraction
+   *    stops. This prevents arbitrary user-provided XML from being elevated to
+   *    system context while still preserving IDE-injected context blocks.
    * 2. Extracted blocks from all turns are collected in `systemContextParts`.
    * 3. The list is deduplicated by tag name (keeping the most-recent occurrence
    *    per tag type) to prevent accumulating stale context across turns.
@@ -1097,8 +1098,8 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
 
       // Ollama requires content to be a string (images are separate field)
       if (role === 'user') {
-        // Strip only *leading* VS Code-injected XML context blocks; accumulate for system message.
-        // This avoids treating arbitrary user-provided tags as privileged system context.
+        // Strip only *leading* allowlisted VS Code-injected XML context blocks;
+        // arbitrary user-provided tags are left in user content.
         const split = splitLeadingXmlContextBlocks(textContent);
         if (split.contextBlocks.length > 0) {
           systemContextParts.push(...split.contextBlocks);

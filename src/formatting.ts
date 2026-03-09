@@ -15,6 +15,29 @@ export interface XmlStreamFilter {
 }
 
 const XML_CONTEXT_TAG_RE = /<([a-zA-Z_][a-zA-Z0-9_.-]*)[^>]*>[\s\S]*?<\/\1>/gi;
+const ELEVATED_CONTEXT_TAG_NAMES = new Set([
+  'environment_info',
+  'user_info',
+  'workspace_info',
+  'selection',
+  'file_context',
+  'user',
+  'userRequest',
+  'workspaces',
+  'workspace',
+  'session',
+  'instructions',
+  'context',
+  'userPreferences',
+  'userData',
+  'profile',
+  'history',
+  'system',
+  'systemPrompt',
+  'chatHistory',
+  'contextWindow',
+  'injectedContext',
+]);
 
 export interface SplitLeadingXmlContextResult {
   content: string;
@@ -40,6 +63,10 @@ export function splitLeadingXmlContextBlocks(text: string): SplitLeadingXmlConte
       if (!match || match.index !== 0) {
         break;
       }
+      const tagName = match[1];
+      if (!ELEVATED_CONTEXT_TAG_NAMES.has(tagName)) {
+        break;
+      }
       const matchedText = match[0];
       contextBlocks.push(matchedText.trim());
       remainingText = remainingText.slice(matchedText.length).trimStart();
@@ -62,11 +89,19 @@ export function dedupeXmlContextBlocksByTag(contextBlocks: readonly string[]): s
   for (let i = contextBlocks.length - 1; i >= 0; i--) {
     const part = contextBlocks[i];
     XML_CONTEXT_TAG_RE.lastIndex = 0;
+    const matches: RegExpExecArray[] = [];
     let match: RegExpExecArray | null;
     while ((match = XML_CONTEXT_TAG_RE.exec(part)) !== null) {
-      const tagName = match[1];
+      matches.push(match);
+    }
+
+    // Iterate per-string matches from right to left so final output reversal
+    // preserves left-to-right order of latest tag occurrences.
+    for (let j = matches.length - 1; j >= 0; j--) {
+      const currentMatch = matches[j];
+      const tagName = currentMatch[1];
       if (!latestByTag.has(tagName)) {
-        latestByTag.set(tagName, match[0].trim());
+        latestByTag.set(tagName, currentMatch[0].trim());
       }
     }
   }
