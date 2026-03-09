@@ -711,13 +711,18 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
     this.clearToolCallIdMappings();
     const runtimeModelId = this.toRuntimeModelId(model.id);
 
+    this.outputChannel.info(
+      `[context] incoming request shape: ${JSON.stringify(this.summarizeIncomingRequest(messages, options), null, 2)}`,
+    );
+
     // Convert VS Code messages to Ollama format, stripping images for non-vision models
     const supportsVision = this.visionByModelId.get(model.id) ?? this.visionByModelId.get(runtimeModelId) ?? false;
     const rawMessages = this.toOllamaMessages(messages, supportsVision) as Message[];
+    const effectiveMessages = this.ensurePromptMessage(rawMessages, options);
     this.outputChannel.info(
-      `[context] before truncation: ${rawMessages.length} messages, ${JSON.stringify(rawMessages, null, 2).length} chars, model.maxInputTokens=${model.maxInputTokens}`,
+      `[context] before truncation: ${effectiveMessages.length} messages, ${JSON.stringify(effectiveMessages, null, 2).length} chars, model.maxInputTokens=${model.maxInputTokens}`,
     );
-    const ollamaMessages = truncateMessages(rawMessages, model.maxInputTokens);
+    const ollamaMessages = truncateMessages(effectiveMessages, model.maxInputTokens);
     this.outputChannel.info(
       `[context] after truncation: ${ollamaMessages.length} messages, ${JSON.stringify(ollamaMessages, null, 2).length} chars`,
     );
@@ -1256,6 +1261,154 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
       const converted = toString.call(part);
       if (converted && converted !== '[object Object]') {
         return converted;
+      }
+    }
+
+    return '';
+  }
+
+  private summarizeIncomingRequest(
+    messages: readonly LanguageModelChatRequestMessage[],
+    options: ProvideLanguageModelChatResponseOptions,
+  ): Record<string, unknown> {
+    const summarizedMessages = messages.map((message, index) => ({
+      index,
+      role: message.role,
+      name: message.name,
+      contentParts: message.content.map((part, partIndex) => this.summarizePart(part, partIndex)),
+    }));
+
+    return {
+      messageCount: messages.length,
+      messages: summarizedMessages,
+      optionKeys: Object.keys((options as unknown as Record<string, unknown>) ?? {}),
+      modelOptionKeys:
+        options.modelOptions && typeof options.modelOptions === 'object'
+          ? Object.keys(options.modelOptions as Record<string, unknown>)
+          : [],
+    };
+  }
+
+  private summarizePart(part: unknown, index: number): Record<string, unknown> {
+    const partRecord = (part && typeof part === 'object' ? (part as Record<string, unknown>) : {}) as Record<
+      string,
+      unknown
+    >;
+    const ctorName =
+      part && typeof part === 'object' ? (part as { constructor?: { name?: string } }).constructor?.name : typeof part;
+    return {
+      index,
+      type: ctorName,
+      keys: Object.keys(partRecord),
+      sample:
+        this.extractTextFromUnknownInputPart(part)?.slice(0, 120) ||
+        (part instanceof LanguageModelTextPart ? part.value.slice(0, 120) : ''),
+    };
+  }
+
+  private ensurePromptMessage(messages: Message[], options: ProvideLanguageModelChatResponseOptions): Message[] {
+    const normalizedLastUser = this.extractMeaningfulUserText(messages);
+    if (normalizedLastUser) {
+      return messages;
+    }
+
+    const fallbackPrompt = this.extractPromptFromOptions(options);
+    if (!fallbackPrompt) {
+      return messages;
+    }
+
+    this.outputChannel.warn('[context] no meaningful user prompt in messages; appending fallback prompt from options');
+
+    return [...messages, { role: 'user', content: fallbackPrompt } as Message];
+  }
+
+  private extractMeaningfulUserText(messages: Message[]): string {
+    const userMessages = messages
+      .filter(m => m.role === 'user')
+      .map(m => (typeof m.content === 'string' ? m.content : ''));
+    const combined = userMessages.join('\n').trim();
+    if (!combined) {
+      return '';
+    }
+
+    const stripped = combined
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    // Ignore known scaffolding blocks that can appear without the actual ask
+    const onlyScaffolding =
+      /^(No user preferences|Session memory|I am working in a workspace|The user's current OS)/i.test(stripped);
+    return onlyScaffolding ? '' : stripped;
+  }
+
+  private extractPromptFromOptions(options: ProvideLanguageModelChatResponseOptions): string {
+    const sources: unknown[] = [];
+    if (options.modelOptions) {
+      sources.push(options.modelOptions as unknown);
+    }
+    sources.push(options as unknown);
+
+    for (const source of sources) {
+      const prompt = this.deepFindPromptString(source, 0, new Set());
+      if (prompt) {
+        return prompt;
+      }
+    }
+
+    return '';
+  }
+
+  private deepFindPromptString(value: unknown, depth: number, seen: Set<unknown>): string {
+    if (depth > 5 || value == null) {
+      return '';
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return '';
+      }
+      const isLikelyXmlScaffold = trimmed.startsWith('<') && trimmed.includes('>');
+      const looksLikeNaturalPrompt = /\s/.test(trimmed) || /[?.!,:;]/.test(trimmed);
+      return isLikelyXmlScaffold || !looksLikeNaturalPrompt ? '' : trimmed;
+    }
+    if (typeof value !== 'object') {
+      return '';
+    }
+    if (seen.has(value)) {
+      return '';
+    }
+    seen.add(value);
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = this.deepFindPromptString(item, depth + 1, seen);
+        if (found) {
+          return found;
+        }
+      }
+      return '';
+    }
+
+    const record = value as Record<string, unknown>;
+    const priorityKeys = ['prompt', 'userPrompt', 'query', 'input', 'text', 'message'];
+    for (const key of priorityKeys) {
+      if (key in record) {
+        const found = this.deepFindPromptString(record[key], depth + 1, seen);
+        if (found) {
+          return found;
+        }
+      }
+    }
+
+    const ignoredTraversalKeys = new Set(['toolMode', 'tools']);
+    for (const [key, child] of Object.entries(record)) {
+      if (ignoredTraversalKeys.has(key)) {
+        continue;
+      }
+      const found = this.deepFindPromptString(child, depth + 1, seen);
+      if (found) {
+        return found;
       }
     }
 
