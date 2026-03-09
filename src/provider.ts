@@ -24,7 +24,12 @@ import {
 import { getCloudOllamaClient, getContextLengthOverride, getOllamaClient } from './client';
 import type { DiagnosticsLogger } from './diagnostics.js';
 import { reportError } from './errorHandler.js';
-import { createXmlStreamFilter, formatXmlLikeResponseForDisplay, stripXmlContextTags } from './formatting';
+import {
+  createXmlStreamFilter,
+  dedupeXmlContextBlocksByTag,
+  sanitizeNonStreamingModelOutput,
+  splitLeadingXmlContextBlocks,
+} from './formatting';
 import { isToolsNotSupportedError, normalizeToolParameters } from './toolUtils.js';
 
 const MODEL_LIST_REFRESH_MIN_INTERVAL_MS = 5_000;
@@ -699,9 +704,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
             progress.report(new LanguageModelTextPart('\n\n---\n\n'));
           }
           // Non-stream fallback is complete text; safe to format XML-like blocks.
-          progress.report(
-            new LanguageModelTextPart(formatXmlLikeResponseForDisplay(stripXmlContextTags(fallback.message.content))),
-          );
+          progress.report(new LanguageModelTextPart(sanitizeNonStreamingModelOutput(fallback.message.content)));
           emittedOutput = true;
         }
 
@@ -773,11 +776,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
 
               if (rescued.message?.content) {
                 // Non-stream rescue is complete text; safe to format XML-like blocks.
-                progress.report(
-                  new LanguageModelTextPart(
-                    formatXmlLikeResponseForDisplay(stripXmlContextTags(rescued.message.content)),
-                  ),
-                );
+                progress.report(new LanguageModelTextPart(sanitizeNonStreamingModelOutput(rescued.message.content)));
               }
 
               if (rescued.message?.tool_calls && Array.isArray(rescued.message.tool_calls)) {
@@ -875,7 +874,6 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
     supportsVision = true,
   ): Parameters<typeof this.client.chat>[0]['messages'] {
     const ollamaMessages: Parameters<typeof this.client.chat>[0]['messages'] = [];
-    const XML_CONTEXT_TAG_RE = /<([a-zA-Z_][a-zA-Z0-9_.-]*)[^>]*>[\s\S]*?<\/\1>/gi;
     const systemContextParts: string[] = [];
     let strippedImageCount = 0;
 
@@ -927,30 +925,11 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
       if (role === 'user') {
         // Strip only *leading* VS Code-injected XML context blocks; accumulate for system message.
         // This avoids treating arbitrary user-provided tags as privileged system context.
-        let remainingText = textContent;
-        let hadLeadingContext = false;
-
-        if (remainingText.trimStart().startsWith('<')) {
-          remainingText = remainingText.trimStart();
-          // Iteratively consume XML_CONTEXT_TAG_RE matches only when they appear at the very start
-          // of the remaining text. As soon as a match is not at index 0, we stop extracting.
-          XML_CONTEXT_TAG_RE.lastIndex = 0;
-          // eslint-disable-next-line no-constant-condition
-          while (true) {
-            const match = XML_CONTEXT_TAG_RE.exec(remainingText);
-            if (!match || match.index !== 0) {
-              break;
-            }
-            const matchedText = match[0];
-            systemContextParts.push(matchedText.trim());
-            remainingText = remainingText.slice(matchedText.length).trimStart();
-            hadLeadingContext = true;
-            // Reset lastIndex because we've sliced the string.
-            XML_CONTEXT_TAG_RE.lastIndex = 0;
-          }
+        const split = splitLeadingXmlContextBlocks(textContent);
+        if (split.contextBlocks.length > 0) {
+          systemContextParts.push(...split.contextBlocks);
         }
-
-        textContent = hadLeadingContext ? remainingText : textContent.trim();
+        textContent = split.content;
       }
       if (textContent || images.length > 0) {
         ollamaMsg.content = textContent;
@@ -964,24 +943,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
       }
     }
 
-    // Deduplicate context blocks by tag type, keeping only the most recent occurrence
-    const latestByTag = new Map<string, string>();
-    for (let i = systemContextParts.length - 1; i >= 0; i--) {
-      const part = systemContextParts[i];
-      XML_CONTEXT_TAG_RE.lastIndex = 0;
-      let match: RegExpExecArray | null;
-      // Use a loop in case a single part contains multiple context blocks
-      // (we still only keep the latest block per tag type).
-      while ((match = XML_CONTEXT_TAG_RE.exec(part)) !== null) {
-        const tagName = match[1];
-        if (!latestByTag.has(tagName)) {
-          latestByTag.set(tagName, match[0]);
-        }
-      }
-    }
-
-    // Preserve insertion order (latest occurrence of each tag wins, collected in reverse above)
-    const dedupedContextParts = [...latestByTag.values()].reverse();
+    const dedupedContextParts = dedupeXmlContextBlocksByTag(systemContextParts);
 
     if (dedupedContextParts.length > 0) {
       ollamaMessages.unshift({

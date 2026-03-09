@@ -8,7 +8,12 @@ import { getCloudOllamaClient, getOllamaClient, testConnection } from './client.
 import { OllamaInlineCompletionProvider } from './completions.js';
 import { createDiagnosticsLogger, getConfiguredLogLevel, type DiagnosticsLogger } from './diagnostics.js';
 import { reportError } from './errorHandler.js';
-import { createXmlStreamFilter, formatXmlLikeResponseForDisplay, stripXmlContextTags } from './formatting';
+import {
+  createXmlStreamFilter,
+  dedupeXmlContextBlocksByTag,
+  sanitizeNonStreamingModelOutput,
+  splitLeadingXmlContextBlocks,
+} from './formatting';
 import { registerModelfileManager } from './modelfiles.js';
 import { isThinkingModelId, OllamaChatModelProvider } from './provider.js';
 import { registerSidebar, type SidebarProfilingSnapshot } from './sidebar.js';
@@ -385,7 +390,6 @@ export async function handleChatRequest(
       // only (stopping as soon as a tag does not begin at index 0), collected into systemContextParts,
       // deduplicated by tag name (most-recent wins), then prepended as a single Ollama `system` message.
       // This keeps IDE-injected context separate from the conversational user turn.
-      const XML_CONTEXT_TAG_RE = /<([a-zA-Z_][a-zA-Z0-9_.-]*)[^>]*>[\s\S]*?<\/\1>/gi;
       const systemContextParts: string[] = [];
 
       const ollamaMessages: (Message & { tool_call_id?: string })[] = messages.map(msg => {
@@ -395,30 +399,11 @@ export async function handleChatRequest(
           .map(p => p.value)
           .join('');
         if (isUser) {
-          let remainingText = content;
-          let hadLeadingContext = false;
-
-          if (remainingText.trimStart().startsWith('<')) {
-            remainingText = remainingText.trimStart();
-            // Iteratively consume XML_CONTEXT_TAG_RE matches only when they appear at the very start
-            // of the remaining text. As soon as a match is not at index 0, we stop extracting.
-            XML_CONTEXT_TAG_RE.lastIndex = 0;
-            // eslint-disable-next-line no-constant-condition
-            while (true) {
-              const match = XML_CONTEXT_TAG_RE.exec(remainingText);
-              if (!match || match.index !== 0) {
-                break;
-              }
-              const matchedText = match[0];
-              systemContextParts.push(matchedText.trim());
-              remainingText = remainingText.slice(matchedText.length).trimStart();
-              hadLeadingContext = true;
-              // Reset lastIndex because we've sliced the string.
-              XML_CONTEXT_TAG_RE.lastIndex = 0;
-            }
+          const split = splitLeadingXmlContextBlocks(content);
+          if (split.contextBlocks.length > 0) {
+            systemContextParts.push(...split.contextBlocks);
           }
-
-          content = hadLeadingContext ? remainingText : content.trim();
+          content = split.content;
         }
         return {
           role: (isUser ? 'user' : 'assistant') as 'user' | 'assistant',
@@ -426,24 +411,7 @@ export async function handleChatRequest(
         };
       });
 
-      // Deduplicate context blocks by tag type, keeping only the most recent occurrence
-      const latestByTag = new Map<string, string>();
-      for (let i = systemContextParts.length - 1; i >= 0; i--) {
-        const part = systemContextParts[i];
-        XML_CONTEXT_TAG_RE.lastIndex = 0;
-        let match: RegExpExecArray | null;
-        // Use a loop in case a single part contains multiple context blocks
-        // (we still only keep the latest block per tag type).
-        while ((match = XML_CONTEXT_TAG_RE.exec(part)) !== null) {
-          const tagName = match[1];
-          if (!latestByTag.has(tagName)) {
-            latestByTag.set(tagName, match[0]);
-          }
-        }
-      }
-
-      // Preserve insertion order (latest occurrence of each tag wins, collected in reverse above)
-      const dedupedContextParts = [...latestByTag.values()].reverse();
+      const dedupedContextParts = dedupeXmlContextBlocksByTag(systemContextParts);
 
       if (dedupedContextParts.length > 0) {
         ollamaMessages.unshift({ role: 'system', content: dedupedContextParts.join('\n\n') });
@@ -493,7 +461,7 @@ export async function handleChatRequest(
           if (!toolCalls?.length) {
             // No tool invocations needed — render the response text and exit.
             if (roundResponse.message.content) {
-              stream.markdown(formatXmlLikeResponseForDisplay(stripXmlContextTags(roundResponse.message.content)));
+              stream.markdown(sanitizeNonStreamingModelOutput(roundResponse.message.content));
             }
             return;
           }
@@ -573,7 +541,7 @@ export async function handleChatRequest(
               continue;
             }
             if (responseText.trim()) {
-              stream.markdown(formatXmlLikeResponseForDisplay(stripXmlContextTags(responseText)));
+              stream.markdown(sanitizeNonStreamingModelOutput(responseText));
             }
             return;
           }
