@@ -29,22 +29,20 @@ if (!version || !/^\d+\.\d+\.\d+$/.test(version)) {
   process.exit(1);
 }
 
-// Git tag gets a -pre suffix for pre-releases so the release workflow can detect
-// the pre-release flag without relying on a semver suffix in the version number.
-// package.json gets the plain major.minor.patch version the Marketplace requires.
-const tag = isPreRelease ? `v${version}-pre` : `v${version}`;
+// Tag always uses plain major.minor.patch; the pre-release flag is passed as a
+// workflow input so CI can distinguish pre-release from stable without needing
+// a version suffix.
+const tag = `v${version}`;
 
 // ---------------------------------------------------------------------------
 // Rollback state
 //   commitLocal  — release commit exists locally but has not been pushed
 //   commitPushed — release commit has been pushed to origin/main
-//   tagPushed    — tag has been pushed but release workflow has not yet succeeded
-//   releaseDone  — release workflow succeeded; nothing to undo
+//   releaseDone  — release CI workflow succeeded; nothing to undo
 // ---------------------------------------------------------------------------
 
 let commitLocal = false;
 let commitPushed = false;
-let tagPushed = false;
 let releaseDone = false;
 let gitCmd = 'git';
 
@@ -93,17 +91,6 @@ async function rollback() {
   }
   $.verbose = false;
   try {
-    if (tagPushed) {
-      console.log(`\n⚠️  Release workflow failed or was interrupted. Deleting remote tag ${tag}...`);
-      try {
-        runGit(['push', 'origin', '--delete', tag]);
-        runGit(['tag', '-d', tag]);
-        console.log(`↩️  Tag ${tag} deleted from remote and local.`);
-      } catch {
-        console.error(`❌ Could not delete tag. Manually run:`);
-        console.error(`   git push origin --delete ${tag} && git tag -d ${tag}`);
-      }
-    }
     if (commitPushed) {
       console.log('\n⚠️  Reverting release commit on origin/main...');
       try {
@@ -190,13 +177,6 @@ async function main() {
     process.exit(1);
   }
   const [, owner, repo] = repoMatch;
-
-  // Check for existing local tag.
-  const localTag = runGit(['tag', '-l', tag]).stdout.trim();
-  if (localTag) {
-    console.error(`❌ Local tag ${tag} already exists.`);
-    process.exit(1);
-  }
 
   // Check for existing remote tag via the API.
   try {
@@ -316,26 +296,31 @@ async function main() {
     await waitForWorkflow(octokit, name, owner, repo, headSha, spinner);
   }
 
-  // --- Tag + publish --------------------------------------------------------
+  // --- Dispatch release CI workflow ----------------------------------------
 
-  console.log(`🏷️  Creating annotated tag ${tag} at ${headSha}...`);
+  console.log(`🚀 Dispatching release CI workflow for version ${version}${isPreRelease ? ' (pre-release)' : ''}...`);
 
-  const tagMessage = [
-    `Release ${tag}`,
-    releaseNotes,
-    previousTag ? `Source: changes from ${previousTag} to ${tag}.` : '',
-    `Target commit: ${headSha}`,
-  ]
-    .filter(Boolean)
-    .join('\n\n');
+  const workflowsResp = await octokit.actions.listRepoWorkflows({ owner, repo, per_page: 100 });
+  const releaseWorkflow = workflowsResp.data.workflows.find(w => w.name === 'Release');
+  if (!releaseWorkflow) {
+    throw new Error(`Release workflow not found in ${owner}/${repo}`);
+  }
 
-  runGit(['tag', '-a', tag, headSha, '-m', tagMessage]);
-
-  console.log(`🚀 Pushing tag ${tag}...`);
-  runGit(['push', 'origin', tag]);
-  tagPushed = true;
+  await octokit.actions.createWorkflowDispatch({
+    owner,
+    repo,
+    workflow_id: releaseWorkflow.id,
+    ref: 'main',
+    inputs: {
+      version,
+      pre_release: isPreRelease,
+    },
+  });
 
   // --- Watch the release workflow ------------------------------------------
+
+  // Give GitHub a moment to register the dispatch before we start polling.
+  await sleep(10_000);
 
   spinner.text = 'Release: waiting for workflow to trigger...';
   spinner.start();
@@ -345,7 +330,7 @@ async function main() {
   });
 
   releaseDone = true;
-  console.log(`✅ Release complete: ${tag} → ${headSha}`);
+  console.log(`✅ Release CI workflow completed: ${tag}`);
 }
 
 // ---------------------------------------------------------------------------
