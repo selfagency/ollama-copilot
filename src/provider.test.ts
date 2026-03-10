@@ -30,7 +30,6 @@ function makeContext(): ExtensionContext {
 }
 
 vi.mock('./client.js', () => ({
-  getContextLengthOverride: vi.fn(() => 0),
   getOllamaClient: vi.fn(),
   getCloudOllamaClient: vi.fn(),
 }));

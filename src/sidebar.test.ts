@@ -325,7 +325,7 @@ describe('LocalModelsProvider', () => {
     cloudProvider.grouped = false;
     const models = await cloudProvider.getChildren();
     expect(models[0].type).toBe('cloud-stopped');
-    expect(models[0].command).toBeUndefined();
+    expect(models[0].command).toEqual(expect.objectContaining({ command: 'opilot.openModelSettingsForModel' }));
     cloudProvider.dispose();
   });
 

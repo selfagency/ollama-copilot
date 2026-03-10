@@ -23,7 +23,6 @@ import {
 } from 'vscode';
 import {
   getCloudOllamaClient,
-  getContextLengthOverride,
   getOllamaAuthToken,
   getOllamaClient,
   getOllamaHost,
@@ -215,7 +214,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
    */
   private getBaseChatModelInfo(modelId: string): LanguageModelChatInformation {
     const providerModelId = this.toProviderModelId(modelId);
-    const contextLength = getContextLengthOverride();
+    const contextLength = 0;
     const nativeToolCalling = false;
     this.nativeToolCallingByModelId.set(modelId, nativeToolCalling);
     this.nativeToolCallingByModelId.set(providerModelId, nativeToolCalling);
@@ -336,7 +335,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
         (typedResponse.model_info as Map<string, unknown> | Record<string, unknown> | undefined) ??
         typedResponse.modelinfo;
       const parameters = typedResponse.parameters;
-      let contextLength = getContextLengthOverride();
+      let contextLength = 0;
       if (!contextLength) {
         // Ollama exposes context_length in model_info using family-specific keys
         // (e.g. llama.context_length, qwen2.context_length, gemma.context_length).

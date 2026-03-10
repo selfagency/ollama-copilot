@@ -16,9 +16,11 @@ import {
   splitLeadingXmlContextBlocks,
 } from './formatting';
 import { registerModelfileManager } from './modelfiles.js';
+import { loadModelSettings, saveModelSettings, type ModelSettingsStore } from './modelSettings.js';
 import { chatCompletionsOnce, initiateChatCompletionsStream } from './openaiCompat.js';
 import { ollamaMessagesToOpenAICompat, ollamaToolsToOpenAICompat } from './openaiCompatMapping.js';
 import { isThinkingModelId, OllamaChatModelProvider } from './provider.js';
+import { createModelSettingsViewProvider, MODEL_SETTINGS_VIEW_ID } from './settingsWebview.js';
 import { registerSidebar, type SidebarProfilingSnapshot } from './sidebar.js';
 import { registerStatusBarHeartbeat } from './statusBar.js';
 import { ThinkingParser } from './thinkingParser.js';
@@ -1166,6 +1168,59 @@ export async function activate(context: vscode.ExtensionContext) {
   diagnostics.info(`[client] auto-start log streaming: ${autoStartLogStreaming ? 'enabled' : 'disabled'}`);
   diagnostics.info(`[client] diagnostics log level: ${getConfiguredLogLevel()}`);
 
+  let modelSettingsStore: ModelSettingsStore = {};
+  if (context.globalStorageUri?.fsPath) {
+    modelSettingsStore = await loadModelSettings(context.globalStorageUri, diagnostics);
+  } else {
+    diagnostics.warn('[model-settings] globalStorageUri missing; using in-memory settings only');
+  }
+
+  const getAvailableModelNames = async (): Promise<string[]> => {
+    const names = new Set<string>(Object.keys(modelSettingsStore));
+    try {
+      const [local, running] = await Promise.all([client.list(), client.ps()]);
+      for (const model of local.models ?? []) {
+        if (typeof model?.name === 'string' && model.name.length > 0) {
+          names.add(model.name);
+        }
+      }
+      for (const model of running.models ?? []) {
+        if (typeof model?.name === 'string' && model.name.length > 0) {
+          names.add(model.name);
+        }
+      }
+    } catch (error) {
+      diagnostics.exception('[model-settings] failed to collect model list', error);
+    }
+    return Array.from(names);
+  };
+
+  const modelSettingsViewProvider = createModelSettingsViewProvider({
+    context,
+    initialStore: modelSettingsStore,
+    getAvailableModels: getAvailableModelNames,
+    onStoreChanged: async nextStore => {
+      modelSettingsStore = nextStore;
+      if (context.globalStorageUri?.fsPath) {
+        await saveModelSettings(context.globalStorageUri, modelSettingsStore, diagnostics);
+      }
+    },
+    diagnostics,
+  });
+
+  diagnostics.warn(`[model-settings] Registering webview view provider with ID: ${MODEL_SETTINGS_VIEW_ID}`);
+  const modelSettingsViewRegistration =
+    typeof vscode.window.registerWebviewViewProvider === 'function'
+      ? vscode.window.registerWebviewViewProvider(MODEL_SETTINGS_VIEW_ID, modelSettingsViewProvider, {
+          webviewOptions: { retainContextWhenHidden: true },
+        })
+      : {
+          dispose: () => {
+            /* noop for tests/mocks */
+          },
+        };
+  diagnostics.warn('[model-settings] View provider registered');
+
   const provider = new OllamaChatModelProvider(context, client, diagnostics);
   let lmProviderDisposable: vscode.Disposable | undefined;
   try {
@@ -1212,6 +1267,17 @@ export async function activate(context: vscode.ExtensionContext) {
       provider.refreshModels();
       diagnostics.info('[client] model list refresh triggered');
     }),
+    vscode.commands.registerCommand('opilot.openModelSettings', async () => {
+      modelSettingsViewProvider.updateStore(modelSettingsStore);
+      await modelSettingsViewProvider.open();
+    }),
+    vscode.commands.registerCommand('opilot.openModelSettingsForModel', async (modelId: unknown) => {
+      if (typeof modelId !== 'string' || modelId.length === 0) {
+        return;
+      }
+      modelSettingsViewProvider.updateStore(modelSettingsStore);
+      await modelSettingsViewProvider.open(modelId);
+    }),
     vscode.commands.registerCommand('opilot.dumpPerformanceSnapshot', () => {
       logPerformanceSnapshot(diagnostics, sidebarRegistration?.getProfilingSnapshot?.());
       void vscode.window.showInformationMessage('Performance snapshot written to Opilot logs');
@@ -1225,6 +1291,7 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     }),
     statusBarRegistration,
+    modelSettingsViewRegistration,
     {
       dispose: () => stopLogStreaming(),
     },
