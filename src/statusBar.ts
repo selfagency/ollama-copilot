@@ -75,23 +75,12 @@ function formatTime(d: Date): string {
 }
 
 function buildOnlineTooltip(result: HealthCheckResult): vscode.MarkdownString {
-  const totalSize = result.runningModels.reduce((acc, m) => acc + m.size, 0);
-  const totalVram = result.runningModels.reduce((acc, m) => acc + m.sizeVram, 0);
-
-  const lines: string[] = [`**Ollama** — connected`, ``, `Host: \`${result.host}\``];
+  const lines: string[] = [`🦙 **Ollama** — connected`, ``, `Host: \`${result.host}\``];
 
   if (result.runningCount === 0) {
-    lines.push(`Running: none`);
+    lines.push(`\nRunning: none`);
   } else {
-    lines.push(`Running: ${result.runningCount} model${result.runningCount !== 1 ? 's' : ''}`);
-    lines.push(`Memory: ${formatBytes(totalSize)}`);
-
-    if (totalSize > 0) {
-      const gpuPct = Math.round((totalVram / totalSize) * 100);
-      lines.push(`Pressure: ${gpuPct > 0 ? `${gpuPct}% GPU` : 'CPU only'}`);
-    }
-
-    lines.push(``, `| Model | Memory | Processor |`);
+    lines.push(`| Model | Memory | Processor |`);
     lines.push(`| --- | --- | --- |`);
     for (const m of result.runningModels) {
       const gpuPct = m.size > 0 ? Math.round((m.sizeVram / m.size) * 100) : 0;
@@ -109,10 +98,7 @@ function buildOnlineTooltip(result: HealthCheckResult): vscode.MarkdownString {
 
 function applyState(item: vscode.StatusBarItem, result: HealthCheckResult): void {
   if (result.online) {
-    item.text =
-      result.runningCount > 0
-        ? `$(radio-tower) Ollama (${result.runningCount})`
-        : `$(radio-tower) Ollama`;
+    item.text = result.runningCount > 0 ? `$(pulse) Ollama (${result.runningCount})` : `$(pulse) Ollama`;
     item.tooltip = buildOnlineTooltip(result);
     item.backgroundColor = undefined;
     item.color = undefined;
@@ -126,17 +112,22 @@ function applyState(item: vscode.StatusBarItem, result: HealthCheckResult): void
   }
 }
 
+export type StatusBarHeartbeatRegistration = {
+  dispose: () => void;
+  triggerCheck: () => void;
+};
+
 /**
  * Register the Ollama status bar heartbeat.
  *
- * The returned disposable stops the interval and removes the status bar item.
- * Add it to `context.subscriptions`.
+ * Returns an object with `dispose()` to stop polling and `triggerCheck()` to
+ * force an immediate health check (useful after starting/stopping models).
  */
 export function registerStatusBarHeartbeat(
   client: Ollama,
   host: string,
   diagnostics: DiagnosticsLogger,
-): vscode.Disposable {
+): StatusBarHeartbeatRegistration {
   const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   item.command = 'opilot.checkServerHealth';
   item.text = `$(loading~spin) Ollama…`;
@@ -149,7 +140,9 @@ export function registerStatusBarHeartbeat(
   const runCheck = async () => {
     item.text = `$(loading~spin) Ollama…`;
     const result = await checkOllamaHealth(client, host);
-    diagnostics.debug(`[statusBar] health check: ${result.online ? `online, ${result.runningCount} running` : 'offline'}`);
+    diagnostics.debug(
+      `[statusBar] health check: ${result.online ? `online, ${result.runningCount} running` : 'offline'}`,
+    );
 
     if (!result.online) {
       consecutiveFailures++;
@@ -186,6 +179,9 @@ export function registerStatusBarHeartbeat(
       clearInterval(intervalHandle);
       configListener.dispose();
       item.dispose();
+    },
+    triggerCheck: () => {
+      void runCheck();
     },
   };
 }

@@ -6,6 +6,7 @@ import type { ChatResponse, Message, Ollama, Tool } from 'ollama';
 import * as vscode from 'vscode';
 import { getCloudOllamaClient, getOllamaAuthToken, getOllamaClient, getOllamaHost, testConnection } from './client.js';
 import { OllamaInlineCompletionProvider } from './completions.js';
+import { truncateMessages } from './contextUtils.js';
 import { createDiagnosticsLogger, getConfiguredLogLevel, type DiagnosticsLogger } from './diagnostics.js';
 import { reportError } from './errorHandler.js';
 import {
@@ -15,13 +16,12 @@ import {
   splitLeadingXmlContextBlocks,
 } from './formatting';
 import { registerModelfileManager } from './modelfiles.js';
-import { chatCompletionsOnce, chatCompletionsStream, initiateChatCompletionsStream } from './openaiCompat.js';
+import { chatCompletionsOnce, initiateChatCompletionsStream } from './openaiCompat.js';
 import { ollamaMessagesToOpenAICompat, ollamaToolsToOpenAICompat } from './openaiCompatMapping.js';
 import { isThinkingModelId, OllamaChatModelProvider } from './provider.js';
-import { ThinkingParser } from './thinkingParser.js';
-import { truncateMessages } from './contextUtils.js';
 import { registerSidebar, type SidebarProfilingSnapshot } from './sidebar.js';
 import { registerStatusBarHeartbeat } from './statusBar.js';
+import { ThinkingParser } from './thinkingParser.js';
 import {
   buildXmlToolSystemPrompt,
   extractXmlToolCalls,
@@ -1198,7 +1198,11 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   })();
 
-  const sidebarRegistration = registerSidebar(context, client, diagnostics, () => provider.refreshModels());
+  const statusBarRegistration = registerStatusBarHeartbeat(client, host, diagnostics);
+  const sidebarRegistration = registerSidebar(context, client, diagnostics, () => {
+    provider.refreshModels();
+    statusBarRegistration.triggerCheck();
+  });
 
   const subscriptions: vscode.Disposable[] = [
     vscode.commands.registerCommand('opilot.manageAuthToken', async () => {
@@ -1220,7 +1224,7 @@ export async function activate(context: vscode.ExtensionContext) {
         void vscode.window.showInformationMessage('Ollama server is reachable.');
       }
     }),
-    registerStatusBarHeartbeat(client, host, diagnostics),
+    statusBarRegistration,
     {
       dispose: () => stopLogStreaming(),
     },

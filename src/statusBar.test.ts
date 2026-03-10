@@ -61,7 +61,11 @@ const noopLogger = {
   exception: vi.fn(),
 };
 
-function makeClient(models: Array<{ name: string; size?: number; size_vram?: number }> = [{ name: 'llama3.2', size: 4_000_000_000, size_vram: 4_000_000_000 }]): Ollama {
+function makeClient(
+  models: Array<{ name: string; size?: number; size_vram?: number }> = [
+    { name: 'llama3.2', size: 4_000_000_000, size_vram: 4_000_000_000 },
+  ],
+): Ollama {
   return {
     ps: vi.fn().mockResolvedValue({ models }),
   } as unknown as Ollama;
@@ -148,7 +152,7 @@ describe('registerStatusBarHeartbeat', () => {
     registerStatusBarHeartbeat(client, 'http://localhost:11434', noopLogger);
     await flushPromises();
 
-    expect(mockStatusBarItem.text).toContain('radio-tower');
+    expect(mockStatusBarItem.text).toContain('pulse');
     expect(mockStatusBarItem.text).toContain('2');
     expect(mockStatusBarItem.backgroundColor).toBeUndefined();
   });
@@ -162,9 +166,8 @@ describe('registerStatusBarHeartbeat', () => {
     await flushPromises();
 
     const tooltip = mockStatusBarItem.tooltip as { value: string };
-    expect(tooltip.value).toContain('Memory:');
     expect(tooltip.value).toContain('GB');
-    // total vram = 4GB, total = 6GB => 66% GPU
+    // llama3.2: 100% GPU, gemma3: CPU only
     expect(tooltip.value).toContain('GPU');
     expect(tooltip.value).toContain('llama3.2');
     expect(tooltip.value).toContain('gemma3');
@@ -175,7 +178,7 @@ describe('registerStatusBarHeartbeat', () => {
     registerStatusBarHeartbeat(client, 'http://localhost:11434', noopLogger);
     await flushPromises();
 
-    expect(mockStatusBarItem.text).toBe('$(radio-tower) Ollama');
+    expect(mockStatusBarItem.text).toBe('$(pulse) Ollama');
     const tooltip = mockStatusBarItem.tooltip as { value: string };
     expect(tooltip.value).toContain('none');
   });
@@ -227,7 +230,7 @@ describe('registerStatusBarHeartbeat', () => {
     // Recovery
     vi.advanceTimersByTime(30_000);
     await flushPromises();
-    expect(mockStatusBarItem.text).toContain('radio-tower');
+    expect(mockStatusBarItem.text).toContain('pulse');
     expect(mockStatusBarItem.backgroundColor).toBeUndefined();
   });
 
