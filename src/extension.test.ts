@@ -25,7 +25,16 @@ describe('activate', () => {
         event = {};
         fire = vi.fn();
       },
+      StatusBarAlignment: { Right: 2 },
+      MarkdownString: class {
+        constructor(public value: string) {}
+      },
+      ThemeColor: class {
+        constructor(public id: string) {}
+      },
       window: {
+
+        createStatusBarItem: vi.fn(() => ({ text: "", tooltip: undefined, command: undefined, show: vi.fn(), dispose: vi.fn() })),
         registerTreeDataProvider: vi.fn(() => ({ dispose: vi.fn() })),
         registerWebviewViewProvider: vi.fn(() => ({ dispose: vi.fn() })),
         createOutputChannel: vi.fn(() => ({
@@ -135,7 +144,16 @@ describe('activate', () => {
         event = {};
         fire = vi.fn();
       },
+      StatusBarAlignment: { Right: 2 },
+      MarkdownString: class {
+        constructor(public value: string) {}
+      },
+      ThemeColor: class {
+        constructor(public id: string) {}
+      },
       window: {
+
+        createStatusBarItem: vi.fn(() => ({ text: "", tooltip: undefined, command: undefined, show: vi.fn(), dispose: vi.fn() })),
         registerTreeDataProvider: vi.fn(() => ({ dispose: vi.fn() })),
         registerWebviewViewProvider: vi.fn(() => ({ dispose: vi.fn() })),
         createOutputChannel: vi.fn(() => ({
@@ -249,7 +267,16 @@ describe('activate', () => {
         event = {};
         fire = vi.fn();
       },
+      StatusBarAlignment: { Right: 2 },
+      MarkdownString: class {
+        constructor(public value: string) {}
+      },
+      ThemeColor: class {
+        constructor(public id: string) {}
+      },
       window: {
+
+        createStatusBarItem: vi.fn(() => ({ text: "", tooltip: undefined, command: undefined, show: vi.fn(), dispose: vi.fn() })),
         registerTreeDataProvider: vi.fn(() => ({ dispose: vi.fn() })),
         registerWebviewViewProvider: vi.fn(() => ({ dispose: vi.fn() })),
         createOutputChannel: vi.fn(() => ({
@@ -375,7 +402,16 @@ describe('activate', () => {
         event = {};
         fire = vi.fn();
       },
+      StatusBarAlignment: { Right: 2 },
+      MarkdownString: class {
+        constructor(public value: string) {}
+      },
+      ThemeColor: class {
+        constructor(public id: string) {}
+      },
       window: {
+
+        createStatusBarItem: vi.fn(() => ({ text: "", tooltip: undefined, command: undefined, show: vi.fn(), dispose: vi.fn() })),
         registerTreeDataProvider: vi.fn(() => ({ dispose: vi.fn() })),
         registerWebviewViewProvider: vi.fn(() => ({ dispose: vi.fn() })),
         createOutputChannel: vi.fn(() => ({
@@ -499,7 +535,16 @@ describe('activate', () => {
         event = {};
         fire = vi.fn();
       },
+      StatusBarAlignment: { Right: 2 },
+      MarkdownString: class {
+        constructor(public value: string) {}
+      },
+      ThemeColor: class {
+        constructor(public id: string) {}
+      },
       window: {
+
+        createStatusBarItem: vi.fn(() => ({ text: "", tooltip: undefined, command: undefined, show: vi.fn(), dispose: vi.fn() })),
         registerTreeDataProvider: vi.fn(() => ({ dispose: vi.fn() })),
         registerWebviewViewProvider: vi.fn(() => ({ dispose: vi.fn() })),
         createOutputChannel,
@@ -613,7 +658,16 @@ describe('activate', () => {
         event = {};
         fire = vi.fn();
       },
+      StatusBarAlignment: { Right: 2 },
+      MarkdownString: class {
+        constructor(public value: string) {}
+      },
+      ThemeColor: class {
+        constructor(public id: string) {}
+      },
       window: {
+
+        createStatusBarItem: vi.fn(() => ({ text: "", tooltip: undefined, command: undefined, show: vi.fn(), dispose: vi.fn() })),
         registerTreeDataProvider: vi.fn(() => ({ dispose: vi.fn() })),
         registerWebviewViewProvider: vi.fn(() => ({ dispose: vi.fn() })),
         createOutputChannel: vi.fn(() => ({
@@ -721,7 +775,16 @@ describe('activate', () => {
         event = {};
         fire = vi.fn();
       },
+      StatusBarAlignment: { Right: 2 },
+      MarkdownString: class {
+        constructor(public value: string) {}
+      },
+      ThemeColor: class {
+        constructor(public id: string) {}
+      },
       window: {
+
+        createStatusBarItem: vi.fn(() => ({ text: "", tooltip: undefined, command: undefined, show: vi.fn(), dispose: vi.fn() })),
         registerTreeDataProvider: vi.fn(() => ({ dispose: vi.fn() })),
         registerWebviewViewProvider: vi.fn(() => ({ dispose: vi.fn() })),
         createOutputChannel: vi.fn(() => ({
@@ -835,7 +898,16 @@ describe('activate', () => {
         event = {};
         fire = vi.fn();
       },
+      StatusBarAlignment: { Right: 2 },
+      MarkdownString: class {
+        constructor(public value: string) {}
+      },
+      ThemeColor: class {
+        constructor(public id: string) {}
+      },
       window: {
+
+        createStatusBarItem: vi.fn(() => ({ text: "", tooltip: undefined, command: undefined, show: vi.fn(), dispose: vi.fn() })),
         registerTreeDataProvider: vi.fn(() => ({ dispose: vi.fn() })),
         registerWebviewViewProvider: vi.fn(() => ({ dispose: vi.fn() })),
         createOutputChannel: vi.fn(() => ({
@@ -960,7 +1032,16 @@ describe('activate', () => {
         event = {};
         fire = vi.fn();
       },
+      StatusBarAlignment: { Right: 2 },
+      MarkdownString: class {
+        constructor(public value: string) {}
+      },
+      ThemeColor: class {
+        constructor(public id: string) {}
+      },
       window: {
+
+        createStatusBarItem: vi.fn(() => ({ text: "", tooltip: undefined, command: undefined, show: vi.fn(), dispose: vi.fn() })),
         registerTreeDataProvider: vi.fn(() => ({ dispose: vi.fn() })),
         registerWebviewViewProvider: vi.fn(() => ({ dispose: vi.fn() })),
         createOutputChannel: vi.fn(() => ({
@@ -2036,6 +2117,8 @@ describe('handleBuiltInOllamaConflict', () => {
       env: { openExternal: vi.fn() },
       Uri: { joinPath: vi.fn().mockReturnValue(undefined), parse: vi.fn() },
       window: {
+
+        createStatusBarItem: vi.fn(() => ({ text: "", tooltip: undefined, command: undefined, show: vi.fn(), dispose: vi.fn() })),
         createOutputChannel: vi.fn(() => ({
           info: vi.fn(),
           warn: vi.fn(),
@@ -2326,7 +2409,16 @@ describe('activate noopLogger', () => {
         event = {};
         fire = vi.fn();
       },
+      StatusBarAlignment: { Right: 2 },
+      MarkdownString: class {
+        constructor(public value: string) {}
+      },
+      ThemeColor: class {
+        constructor(public id: string) {}
+      },
       window: {
+
+        createStatusBarItem: vi.fn(() => ({ text: "", tooltip: undefined, command: undefined, show: vi.fn(), dispose: vi.fn() })),
         registerTreeDataProvider: vi.fn(() => ({ dispose: vi.fn() })),
         showInputBox: vi.fn(),
         showErrorMessage: vi.fn(),
@@ -2460,7 +2552,16 @@ describe('startLogStreaming inner callbacks', () => {
         event = {};
         fire = vi.fn();
       },
+      StatusBarAlignment: { Right: 2 },
+      MarkdownString: class {
+        constructor(public value: string) {}
+      },
+      ThemeColor: class {
+        constructor(public id: string) {}
+      },
       window: {
+
+        createStatusBarItem: vi.fn(() => ({ text: "", tooltip: undefined, command: undefined, show: vi.fn(), dispose: vi.fn() })),
         registerTreeDataProvider: vi.fn(() => ({ dispose: vi.fn() })),
         createOutputChannel: vi.fn(() => ({
           info: vi.fn(),
@@ -2629,6 +2730,8 @@ describe('handleConnectionTestFailure Open Logs path', () => {
         onDidChangeConfiguration: vi.fn(() => ({ dispose: vi.fn() })),
       },
       window: {
+
+        createStatusBarItem: vi.fn(() => ({ text: "", tooltip: undefined, command: undefined, show: vi.fn(), dispose: vi.fn() })),
         showTextDocument,
         showWarningMessage,
         showErrorMessage: vi.fn(),
@@ -2696,6 +2799,8 @@ describe('handleConnectionTestFailure Open Logs path', () => {
         onDidChangeConfiguration: vi.fn(() => ({ dispose: vi.fn() })),
       },
       window: {
+
+        createStatusBarItem: vi.fn(() => ({ text: "", tooltip: undefined, command: undefined, show: vi.fn(), dispose: vi.fn() })),
         showTextDocument: vi.fn(),
         showWarningMessage,
         showErrorMessage: vi.fn(),
