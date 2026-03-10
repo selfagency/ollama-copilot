@@ -1,12 +1,11 @@
 ---
 # ollama-models-vscode-f48p
 title: fix garbage/leaked output from model responses
-status: in-progress
+status: completed
 type: bug
 priority: high
 created_at: 2026-03-10T15:47:47Z
-updated_at: 2026-03-10T15:48:18Z
-branch: fix/f48p-garbage-leaked-output
+updated_at: 2026-03-10T15:56:10Z
 ---
 
 ## Problem
