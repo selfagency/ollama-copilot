@@ -1,11 +1,11 @@
 ---
 # ollama-models-vscode-4v4t
 title: model settings webview with per model parameter pe
-status: in-progress
+status: completed
 type: task
 priority: normal
 created_at: 2026-03-10T02:47:59Z
-updated_at: 2026-03-10T04:25:23Z
+updated_at: 2026-03-10T15:47:00Z
 ---
 
 ## Overview

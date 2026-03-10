@@ -4,9 +4,6 @@ import type { DiagnosticsLogger } from './diagnostics.js';
 
 const MODEL_SETTINGS_FILE = 'model-settings.json';
 
-export interface ModelOptionOverrides {
-import { dirname, join } from 'node:path';
-
 /**
  * Minimal context shape required by the model settings helpers.
  * Compatible with `vscode.ExtensionContext` but avoids importing the full type.
@@ -28,6 +25,8 @@ export interface ModelOptions {
   think?: boolean;
   think_budget?: number;
 }
+
+export type ModelOptionOverrides = ModelOptions;
 
 export type ModelSettingsStore = Record<string, ModelOptionOverrides>;
 
