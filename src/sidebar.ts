@@ -1201,6 +1201,7 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
   filterText = '';
   grouped = true;
   recommendedOnly = false;
+  capabilityFilters: Set<string> = new Set();
 
   private cache: string[] = [];
   private cacheTimeMs = 0;
@@ -1312,8 +1313,14 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
       const localNames = this.getLocalModelNames();
       const allItems: ModelTreeItem[] = [];
 
+      // Pre-filter models by capability before building the flat list
+      const capabilityFilteredModels =
+        this.capabilityFilters.size > 0
+          ? models.filter(m => m.type === 'status' || this.modelMatchesCapabilityFilters(m.label, localNames))
+          : models;
+
       // Expand all parent models to include their variants
-      for (const model of models) {
+      for (const model of capabilityFilteredModels) {
         if (model.type === 'status') {
           allItems.push(model);
           continue;
@@ -1384,6 +1391,7 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
 
     // Apply filter: keep only families where the family name or any child matches
     const filterLower = this.filterText.toLowerCase();
+    const localNames = this.getLocalModelNames();
     const filteredEntries = Array.from(groups.entries())
       .filter(
         ([familyName, familyModels]) =>
@@ -1401,7 +1409,9 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
               const cached = this.variantsCache.get(m.label);
               if (!cached) return true; // No cache yet — show optimistically
               return cached.some(v => isRecommendedForHardware(v.name));
-            })),
+            })) &&
+          (this.capabilityFilters.size === 0 ||
+            familyModels.some(m => this.modelMatchesCapabilityFilters(m.label, localNames))),
       )
       .sort((a, b) => a[0].localeCompare(b[0]));
 
@@ -1471,6 +1481,47 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
       cloudCatalogNames: this.cloudCatalogNames.size,
       hasLoadPromise: this.loadPromise !== null,
     };
+  }
+
+  /**
+   * Returns true when `modelName` satisfies all active capability filters.
+   * Uses the module-level modelPreviewCache for synchronous capability lookups;
+   * shows models optimistically when preview data isn't cached yet (except for
+   * Downloaded and Cloud, which are determined from local state directly).
+   */
+  private modelMatchesCapabilityFilters(modelName: string, localNames: Set<string>): boolean {
+    if (this.capabilityFilters.size === 0) return true;
+
+    const cacheKey = modelName.toLowerCase();
+    const cached = modelPreviewCache.get(cacheKey);
+    const caps = cached?.value?.capabilities;
+    const isCloudModel = this.cloudCatalogNames.has(cacheKey);
+    const isDownloaded = Array.from(localNames).some(l => l === modelName || l.startsWith(`${modelName}:`));
+
+    for (const filter of this.capabilityFilters) {
+      switch (filter) {
+        case 'thinking':
+          // Regex fallback when preview hasn't been fetched yet
+          if (caps !== undefined ? !caps.thinking : !isThinkingModelId(modelName)) return false;
+          break;
+        case 'tools':
+          if (caps !== undefined && !caps.tools) return false;
+          break;
+        case 'vision':
+          if (caps !== undefined && !caps.vision) return false;
+          break;
+        case 'embedding':
+          if (caps !== undefined && !caps.embedding) return false;
+          break;
+        case 'downloaded':
+          if (!isDownloaded) return false;
+          break;
+        case 'cloud':
+          if (!isCloudModel) return false;
+          break;
+      }
+    }
+    return true;
   }
 
   /** When recommendedOnly is active, keep only variants that fit the hardware. */
@@ -2582,6 +2633,36 @@ export type SidebarRegistration = {
   getProfilingSnapshot: () => SidebarProfilingSnapshot;
 };
 
+const CAPABILITY_FILTER_LABEL_TO_KEY = new Map([
+  ['🧠 Thinking', 'thinking'],
+  ['🛠️ Tools', 'tools'],
+  ['👁️ Vision', 'vision'],
+  ['🧩 Embedding', 'embedding'],
+  ['✅ Downloaded', 'downloaded'],
+  ['☁️ Cloud', 'cloud'],
+]);
+
+async function openLibraryCapabilityPicker(libraryProvider: LibraryModelsProvider): Promise<void> {
+  const items = [...CAPABILITY_FILTER_LABEL_TO_KEY.entries()].map(([label, key]) => ({
+    label,
+    picked: libraryProvider.capabilityFilters.has(key),
+  }));
+  const selected = await window.showQuickPick(items, {
+    canPickMany: true,
+    placeHolder: 'Filter by capability — select one or more, confirm to apply',
+    title: 'Filter Library by Capability',
+  });
+  if (selected === undefined) return;
+  libraryProvider.capabilityFilters.clear();
+  for (const item of selected) {
+    const key = CAPABILITY_FILTER_LABEL_TO_KEY.get(item.label);
+    if (key) libraryProvider.capabilityFilters.add(key);
+  }
+  const hasFilters = libraryProvider.capabilityFilters.size > 0;
+  void commands.executeCommand('setContext', 'ollama.libraryCapabilityFilterActive', hasFilters);
+  libraryProvider.refresh();
+}
+
 /**
  * Register sidebar with VS Code
  */
@@ -2648,17 +2729,23 @@ export function registerSidebar(
       void commands.executeCommand('setContext', 'ollama.cloudFilterActive', false);
       cloudProvider.refresh();
     }),
-    commands.registerCommand('opilot.filterLibraryModels', async () => {
-      const value = await window.showInputBox({ prompt: 'Filter library models', value: libraryProvider.filterText });
+    commands.registerCommand('opilot.filterLibraryCapabilities', async () => {
+      await openLibraryCapabilityPicker(libraryProvider);
+    }),
+    commands.registerCommand('opilot.filterLibraryCapabilitiesActive', async () => {
+      await openLibraryCapabilityPicker(libraryProvider);
+    }),
+    commands.registerCommand('opilot.searchLibraryModels', async () => {
+      const value = await window.showInputBox({ prompt: 'Search library models', value: libraryProvider.filterText });
       if (value !== undefined) {
         libraryProvider.filterText = value;
-        void commands.executeCommand('setContext', 'ollama.libraryFilterActive', value.length > 0);
+        void commands.executeCommand('setContext', 'ollama.librarySearchActive', value.length > 0);
         libraryProvider.refresh();
       }
     }),
-    commands.registerCommand('opilot.clearLibraryFilter', () => {
+    commands.registerCommand('opilot.clearLibrarySearch', () => {
       libraryProvider.filterText = '';
-      void commands.executeCommand('setContext', 'ollama.libraryFilterActive', false);
+      void commands.executeCommand('setContext', 'ollama.librarySearchActive', false);
       libraryProvider.refresh();
     }),
     (() => {

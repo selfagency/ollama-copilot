@@ -2218,8 +2218,10 @@ describe('Extracted command handlers', () => {
     expect(registeredIds).toContain('opilot.clearLocalFilter');
     expect(registeredIds).toContain('opilot.filterCloudModels');
     expect(registeredIds).toContain('opilot.clearCloudFilter');
-    expect(registeredIds).toContain('opilot.filterLibraryModels');
-    expect(registeredIds).toContain('opilot.clearLibraryFilter');
+    expect(registeredIds).toContain('opilot.filterLibraryCapabilities');
+    expect(registeredIds).toContain('opilot.filterLibraryCapabilitiesActive');
+    expect(registeredIds).toContain('opilot.searchLibraryModels');
+    expect(registeredIds).toContain('opilot.clearLibrarySearch');
   });
 });
 
