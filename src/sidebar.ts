@@ -60,11 +60,14 @@ export function extractParamsBillions(modelName: string): number | null {
  * KV-cache, context buffers, and OS processes.  A model that only barely fits
  * will saturate memory bandwidth and run at unbearably slow speeds — so we
  * exclude it.  When the parameter count cannot be determined from the name
- * we return false (no recommendation).
+ * (e.g. a base model name like "llama3.2" without a size tag) we return true
+ * so that the item is shown rather than silently hidden.  The meaningful
+ * recommendation check runs at the variant level where names like
+ * "llama3.2:3b" carry an explicit size.
  */
 export function isRecommendedForHardware(modelName: string): boolean {
   const params = extractParamsBillions(modelName);
-  if (params === null) return false;
+  if (params === null) return true; // Unknown size — show rather than hide
   const memGb = params * 2 * 0.5; // INT4 quant: ~1 GB per billion params
   return memGb <= getAvailableMemoryGb() * 0.6;
 }
@@ -1363,7 +1366,14 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
       }
 
       const filteredItems = this.recommendedOnly
-        ? allItems.filter(item => item.type === 'status' || isRecommendedForHardware(item.label))
+        ? allItems.filter(item => {
+            if (item.type === 'status') return true;
+            // Use cached variant names (e.g. "llama3.2:3b") for an accurate
+            // size check.  Fall back to showing the model when not yet cached.
+            const cached = this.variantsCache.get(item.label);
+            if (!cached) return true;
+            return cached.some(v => isRecommendedForHardware(v.name));
+          })
         : allItems;
 
       return filteredItems.sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()));
@@ -1384,7 +1394,14 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
                 m.label.toLowerCase().includes(filterLower) ||
                 (typeof m.tooltip === 'string' && m.tooltip.toLowerCase().includes(filterLower)),
             )) &&
-          (!this.recommendedOnly || familyModels.some(m => isRecommendedForHardware(m.label))),
+          (!this.recommendedOnly ||
+            // Use cached variant names when available (they carry size tags like
+            // ":7b"), falling back to showing the family when no cache exists yet.
+            familyModels.some(m => {
+              const cached = this.variantsCache.get(m.label);
+              if (!cached) return true; // No cache yet — show optimistically
+              return cached.some(v => isRecommendedForHardware(v.name));
+            })),
       )
       .sort((a, b) => a[0].localeCompare(b[0]));
 
@@ -1701,10 +1718,8 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
           if (preview.capabilities.tools) badges.push('🛠️');
           if (preview.capabilities.vision) badges.push('👁️');
           if (preview.capabilities.embedding) badges.push('🧩');
-          if (isRecommendedForHardware(name)) {
-            badges.push('👍');
-            tooltipLines.push('👍 Recommended for your hardware');
-          }
+          // No 👍 badge here: base model names have no size tag so we
+          // cannot determine fit.  The badge appears on individual variants.
           if (badges.length > 0) {
             item.description = badges.join(' ');
           }

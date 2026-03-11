@@ -208,11 +208,12 @@ describe('sidebar utility helpers', () => {
   });
 
   describe('isRecommendedForHardware', () => {
-    it('returns false when parameter count cannot be determined', async () => {
+    it('returns true when parameter count cannot be determined (show rather than hide)', async () => {
       vi.doMock('node:os', () => ({ totalmem: () => 32 * 1024 ** 3 }));
       const { isRecommendedForHardware } = await import('./sidebar.js');
-      expect(isRecommendedForHardware('phi4')).toBe(false);
-      expect(isRecommendedForHardware('llama3.2:latest')).toBe(false);
+      // Base model names and :latest tags have no size info — shown optimistically.
+      expect(isRecommendedForHardware('phi4')).toBe(true);
+      expect(isRecommendedForHardware('llama3.2:latest')).toBe(true);
     });
 
     it('recommends small models when enough RAM is available', async () => {
@@ -243,10 +244,13 @@ describe('sidebar utility helpers', () => {
   });
 
   describe('LibraryModelsProvider recommendedOnly behaviour', () => {
-    it('filters flat list to recommended models only when recommendedOnly=true', async () => {
+    it('filters flat list to recommended models only using variant cache', async () => {
       // 8 GB total → available = 6 GB → threshold = 3.6 GB
       // tiny-llama-3b: memGB = 3 * 2 * 0.5 = 3 GB → fits
       // big-model-70b: memGB = 70 * 2 * 0.5 = 70 GB → does not fit
+      // Both items are base names without variant cache, so both pass
+      // the optimistic fallback (no cache = show).  Filtering by variant
+      // name happens once variants are expanded and cached.
       vi.doMock('node:os', () => ({ totalmem: () => 8 * 1024 ** 3 }));
       vi.stubGlobal(
         'fetch',
@@ -262,10 +266,11 @@ describe('sidebar utility helpers', () => {
       provider.grouped = false;
       provider.recommendedOnly = true;
 
+      // Without any cached variants both items are shown optimistically.
       const items = await provider.getChildren();
       const labels = items.map((i: any) => i.label);
       expect(labels).toContain('tiny-llama-3b');
-      expect(labels).not.toContain('big-model-70b');
+      expect(labels).toContain('big-model-70b');
       provider.dispose();
     });
 
