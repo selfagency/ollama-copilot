@@ -475,43 +475,43 @@
           "group": "navigation@5"
         },
         {
-          "command": "opilot.filterLibraryModels",
-          "when": "view == ollama-library-models && !ollama.libraryFilterActive",
-          "group": "navigation@0"
-        },
-        {
-          "command": "opilot.clearLibraryFilter",
-          "when": "view == ollama-library-models && ollama.libraryFilterActive",
-          "group": "navigation@0"
-        },
-        {
-          "command": "opilot.toggleLibraryGrouping",
-          "when": "view == ollama-library-models && ollama.libraryGrouped",
-          "group": "navigation@1"
-        },
-        {
-          "command": "opilot.toggleLibraryGroupingToTree",
-          "when": "view == ollama-library-models && !ollama.libraryGrouped",
-          "group": "navigation@1"
-        },
-        {
-          "command": "opilot.refreshLibrary",
-          "when": "view == ollama-library-models",
-          "group": "navigation@2"
-        },
-        {
-          "command": "opilot.collapseLibrary",
-          "when": "view == ollama-library-models",
-          "group": "navigation@3"
-        },
-        {
           "command": "opilot.toggleLibraryRecommended",
           "when": "view == ollama-library-models && !ollama.libraryRecommendedOnly",
-          "group": "navigation@4"
+          "group": "navigation@0"
         },
         {
           "command": "opilot.toggleLibraryRecommendedOff",
           "when": "view == ollama-library-models && ollama.libraryRecommendedOnly",
+          "group": "navigation@0"
+        },
+        {
+          "command": "opilot.filterLibraryModels",
+          "when": "view == ollama-library-models && !ollama.libraryFilterActive",
+          "group": "navigation@1"
+        },
+        {
+          "command": "opilot.clearLibraryFilter",
+          "when": "view == ollama-library-models && ollama.libraryFilterActive",
+          "group": "navigation@1"
+        },
+        {
+          "command": "opilot.toggleLibraryGrouping",
+          "when": "view == ollama-library-models && ollama.libraryGrouped",
+          "group": "navigation@2"
+        },
+        {
+          "command": "opilot.toggleLibraryGroupingToTree",
+          "when": "view == ollama-library-models && !ollama.libraryGrouped",
+          "group": "navigation@2"
+        },
+        {
+          "command": "opilot.refreshLibrary",
+          "when": "view == ollama-library-models",
+          "group": "navigation@3"
+        },
+        {
+          "command": "opilot.collapseLibrary",
+          "when": "view == ollama-library-models",
           "group": "navigation@4"
         },
         {
