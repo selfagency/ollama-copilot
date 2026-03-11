@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-03-11
+
+## What's Changed
+
+- feat(library): hardware-based model recommendations with thumbsup toggle by @selfagency in https://github.com/selfagency/opilot/pull/59
+
+**Full Changelog**: https://github.com/selfagency/opilot/compare/v1.1.0...v1.2.0
+
+_Source: changes from v1.1.0 to v1.2.0._
+
 ## [1.1.0] - 2026-03-10
 
 ## What's Changed
