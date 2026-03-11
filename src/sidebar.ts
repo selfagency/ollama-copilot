@@ -1258,7 +1258,7 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
         return [makeStatusItem('No variants found')];
       }
       // Re-materialize on every call so check icons reflect current local state.
-      return this.materializeVariants(raw, this.getLocalModelNames());
+      return this.filterVariantsByRecommended(this.materializeVariants(raw, this.getLocalModelNames()));
     }
 
     if (element?.type === 'model-group') {
@@ -1286,7 +1286,7 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
         if (raw.length === 0) {
           return [makeStatusItem('No variants found')];
         }
-        return this.materializeVariants(raw, this.getLocalModelNames());
+        return this.filterVariantsByRecommended(this.materializeVariants(raw, this.getLocalModelNames()));
       }
 
       return groupedModels;
@@ -1471,6 +1471,13 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
       cloudCatalogNames: this.cloudCatalogNames.size,
       hasLoadPromise: this.loadPromise !== null,
     };
+  }
+
+  /** When recommendedOnly is active, keep only variants that fit the hardware. */
+  private filterVariantsByRecommended(variants: ModelTreeItem[]): ModelTreeItem[] {
+    if (!this.recommendedOnly) return variants;
+    const filtered = variants.filter(v => isRecommendedForHardware(v.label));
+    return filtered.length > 0 ? filtered : [makeStatusItem('No recommended variants for your hardware')];
   }
 
   private materializeVariants(raw: VariantRaw[], localNames: Set<string>): ModelTreeItem[] {
