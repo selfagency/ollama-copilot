@@ -1332,30 +1332,33 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
           allItems.push(model);
         }
 
-        // Fetch and add variants
-        const cachedVariants = this.variantsCache.get(model.label);
-        if (cachedVariants) {
-          const variants = this.materializeVariants(cachedVariants, localNames);
-          const filteredVariants = variants.filter(
-            v =>
-              !filterLower ||
-              v.label.toLowerCase().includes(filterLower) ||
-              (typeof v.tooltip === 'string' && v.tooltip.toLowerCase().includes(filterLower)),
-          );
-          allItems.push(...filteredVariants);
-        } else {
-          // Fetch variants asynchronously
-          void this.fetchModelVariants(model.label).then(
-            raw => {
-              if (raw) {
-                this.variantsCache.set(model.label, raw);
-                this.treeChangeEmitter.fire(null); // Refresh to show new variants
-              }
-            },
-            () => {
-              // Silently skip on error
-            },
-          );
+        // Fetch and add variants — skip when recommendedOnly to avoid firing
+        // hundreds of concurrent requests after a cache-clearing refresh.
+        if (!this.recommendedOnly) {
+          const cachedVariants = this.variantsCache.get(model.label);
+          if (cachedVariants) {
+            const variants = this.materializeVariants(cachedVariants, localNames);
+            const filteredVariants = variants.filter(
+              v =>
+                !filterLower ||
+                v.label.toLowerCase().includes(filterLower) ||
+                (typeof v.tooltip === 'string' && v.tooltip.toLowerCase().includes(filterLower)),
+            );
+            allItems.push(...filteredVariants);
+          } else {
+            // Fetch variants asynchronously
+            void this.fetchModelVariants(model.label).then(
+              raw => {
+                if (raw) {
+                  this.variantsCache.set(model.label, raw);
+                  this.treeChangeEmitter.fire(null); // Refresh to show new variants
+                }
+              },
+              () => {
+                // Silently skip on error
+              },
+            );
+          }
         }
       }
 
@@ -1374,13 +1377,14 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
     const filteredEntries = Array.from(groups.entries())
       .filter(
         ([familyName, familyModels]) =>
-          !filterLower ||
-          familyName.toLowerCase().includes(filterLower) ||
-          familyModels.some(
-            m =>
-              m.label.toLowerCase().includes(filterLower) ||
-              (typeof m.tooltip === 'string' && m.tooltip.toLowerCase().includes(filterLower)),
-          ),
+          (!filterLower ||
+            familyName.toLowerCase().includes(filterLower) ||
+            familyModels.some(
+              m =>
+                m.label.toLowerCase().includes(filterLower) ||
+                (typeof m.tooltip === 'string' && m.tooltip.toLowerCase().includes(filterLower)),
+            )) &&
+          (!this.recommendedOnly || familyModels.some(m => isRecommendedForHardware(m.label))),
       )
       .sort((a, b) => a[0].localeCompare(b[0]));
 
@@ -2685,11 +2689,6 @@ export function registerSidebar(
       void commands.executeCommand('setContext', 'ollama.libraryRecommendedOnly', initialRecommendedOnly);
       const toggleRecommended = () => {
         libraryProvider.recommendedOnly = !libraryProvider.recommendedOnly;
-        // Recommended view is always flat so individual model names are visible.
-        if (libraryProvider.recommendedOnly) {
-          libraryProvider.grouped = false;
-          void commands.executeCommand('setContext', 'ollama.libraryGrouped', false);
-        }
         void context.globalState.update('ollama.libraryRecommendedOnly', libraryProvider.recommendedOnly);
         void commands.executeCommand('setContext', 'ollama.libraryRecommendedOnly', libraryProvider.recommendedOnly);
         libraryProvider.refresh();
