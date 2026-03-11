@@ -393,8 +393,8 @@
         },
         "ollama.hideThinkingContent": {
           "type": "boolean",
-          "default": true,
-          "markdownDescription": "Hide thinking content in chat responses. When enabled, only the thinking indicator (`💭 **Thinking**`) will be shown without the actual reasoning tokens."
+          "default": false,
+          "markdownDescription": "Hide thinking/reasoning content in chat responses. When disabled (default), reasoning tokens stream as a blockquote before the response. When enabled, the thinking block is suppressed entirely."
         }
       }
     },

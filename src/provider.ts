@@ -836,6 +836,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
       }
 
       let thinkingStarted = false;
+      let thinkingLineStart = true;
       let contentStarted = false;
       let emittedOutput = false;
       const xmlFilter = createXmlStreamFilter();
@@ -856,12 +857,15 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
         // Handle thinking tokens (reasoning phase)
         if (chunk.message?.thinking) {
           if (!thinkingStarted) {
-            progress.report(new LanguageModelTextPart('\n\n💭 **Thinking**\n\n'));
+            progress.report(new LanguageModelTextPart('\n\n> 💭 **Thinking**\n>\n'));
             thinkingStarted = true;
+            thinkingLineStart = true;
             emittedOutput = true;
           }
           if (!hideThinkingContent) {
-            progress.report(new LanguageModelTextPart(chunk.message.thinking));
+            const formatted = appendToBlockquote(chunk.message.thinking, thinkingLineStart);
+            thinkingLineStart = false;
+            progress.report(new LanguageModelTextPart(formatted));
             emittedOutput = true;
           }
         }
@@ -877,19 +881,22 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
 
           if (thinkingChunk) {
             if (!thinkingStarted) {
-              progress.report(new LanguageModelTextPart('\n\n💭 **Thinking**\n\n'));
+              progress.report(new LanguageModelTextPart('\n\n> 💭 **Thinking**\n>\n'));
               thinkingStarted = true;
+              thinkingLineStart = true;
               emittedOutput = true;
             }
             if (!hideThinkingContent) {
-              progress.report(new LanguageModelTextPart(thinkingChunk));
+              const formatted = appendToBlockquote(thinkingChunk, thinkingLineStart);
+              thinkingLineStart = false;
+              progress.report(new LanguageModelTextPart(formatted));
               emittedOutput = true;
             }
           }
 
           if (contentChunk) {
             if (thinkingStarted && !contentStarted) {
-              progress.report(new LanguageModelTextPart('\n\n---\n\n'));
+              progress.report(new LanguageModelTextPart('\n\n'));
               contentStarted = true;
               emittedOutput = true;
             }
@@ -965,18 +972,13 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
         const fallback = await fallbackFn(shouldThink);
         this.outputChannel.info(`[client] non-stream fallback response: ${JSON.stringify(fallback, null, 2)}`);
 
-        if (fallback.message?.thinking) {
-          progress.report(new LanguageModelTextPart('\n\n💭 **Thinking**\n\n'));
-          if (!hideThinkingContent) {
-            progress.report(new LanguageModelTextPart(fallback.message.thinking));
-          }
+        if (fallback.message?.thinking && !hideThinkingContent) {
+          const formatted = appendToBlockquote(fallback.message.thinking, true);
+          progress.report(new LanguageModelTextPart(`\n\n> 💭 **Thinking**\n>\n${formatted}\n\n`));
           emittedOutput = true;
         }
 
         if (fallback.message?.content) {
-          if (fallback.message?.thinking) {
-            progress.report(new LanguageModelTextPart('\n\n---\n\n'));
-          }
           // Non-stream fallback is complete text; safe to format XML-like blocks.
           progress.report(new LanguageModelTextPart(sanitizeNonStreamingModelOutput(fallback.message.content)));
           emittedOutput = true;
@@ -1042,12 +1044,9 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
                 `[client] cloud non-stream rescue (${attempt.label}) succeeded for ${runtimeModelId}`,
               );
 
-              if (rescued.message?.thinking) {
-                progress.report(new LanguageModelTextPart('\n\n\ud83d\udcad **Thinking**\n\n'));
-                if (!hideThinkingContent) {
-                  progress.report(new LanguageModelTextPart(rescued.message.thinking));
-                }
-                progress.report(new LanguageModelTextPart('\n\n---\n\n'));
+              if (rescued.message?.thinking && !hideThinkingContent) {
+                const formatted = appendToBlockquote(rescued.message.thinking, true);
+                progress.report(new LanguageModelTextPart(`\n\n> 💭 **Thinking**\n>\n${formatted}\n\n`));
               }
 
               if (rescued.message?.content) {
@@ -1561,6 +1560,17 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
  * Used as a fallback when the /api/show capabilities array is not yet cached.
  */
 const THINKING_MODEL_PATTERN = /qwen3|qwq|deepseek-?r1|cogito|phi\d+-reasoning|kimi|thinking/i;
+
+/**
+ * Format a text chunk so it renders as a markdown blockquote.
+ * `atLineStart` must be `true` for the first chunk (right after the blockquote header).
+ * All subsequent chunks should pass `false` — internal newlines are already
+ * followed by `> ` so the blockquote continues correctly across chunk boundaries.
+ */
+function appendToBlockquote(text: string, atLineStart: boolean): string {
+  if (!text) return '';
+  return (atLineStart ? '> ' : '') + text.replace(/\n/g, '\n> ');
+}
 
 export function isThinkingModelId(modelId: string): boolean {
   return THINKING_MODEL_PATTERN.test(modelId);

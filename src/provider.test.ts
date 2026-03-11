@@ -1121,10 +1121,8 @@ describe('OllamaChatModelProvider chat response', () => {
     // Should include a header for thinking section
     const allValues = progress.report.mock.calls.map((c: any[]) => c[0]?.value ?? '');
     expect(allValues.some((v: string) => v.includes('Thinking') || v.includes('thinking'))).toBe(true);
-    // Should include thinking content
+    // Should include thinking content (blockquoted)
     expect(allValues.some((v: string) => v.includes('let me reason...'))).toBe(true);
-    // Should include separator before answer
-    expect(allValues.some((v: string) => v.includes('---'))).toBe(true);
     // Should include answer
     expect(allValues.some((v: string) => v.includes('The answer is 42.'))).toBe(true);
   });
@@ -1182,10 +1180,8 @@ describe('OllamaChatModelProvider chat response', () => {
     expect(joined).not.toContain('</think>');
     // Thinking section header should be emitted
     expect(allValues.some((v: string) => v.includes('Thinking') || v.includes('thinking'))).toBe(true);
-    // Thinking content should be visible
+    // Thinking content should be visible (blockquoted)
     expect(allValues.some((v: string) => v.includes('let me reason step 1'))).toBe(true);
-    // Separator before response
-    expect(allValues.some((v: string) => v.includes('---'))).toBe(true);
     // Final answer should be present
     expect(allValues.some((v: string) => v.includes('The answer is 42.'))).toBe(true);
   });
