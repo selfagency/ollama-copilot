@@ -198,6 +198,18 @@
         "category": "Ollama"
       },
       {
+        "command": "opilot.toggleLibraryRecommended",
+        "title": "Show Recommended Models",
+        "icon": "$(thumbsup)",
+        "category": "Ollama"
+      },
+      {
+        "command": "opilot.toggleLibraryRecommendedOff",
+        "title": "Show All Models",
+        "icon": "$(thumbsup-filled)",
+        "category": "Ollama"
+      },
+      {
         "command": "opilot.collapseLocalModels",
         "title": "Collapse All Local Models",
         "icon": "$(collapse-all)",
@@ -491,6 +503,16 @@
           "command": "opilot.collapseLibrary",
           "when": "view == ollama-library-models",
           "group": "navigation@3"
+        },
+        {
+          "command": "opilot.toggleLibraryRecommended",
+          "when": "view == ollama-library-models && !ollama.libraryRecommendedOnly",
+          "group": "navigation@4"
+        },
+        {
+          "command": "opilot.toggleLibraryRecommendedOff",
+          "when": "view == ollama-library-models && ollama.libraryRecommendedOnly",
+          "group": "navigation@4"
         },
         {
           "command": "opilot.loginCloud",
