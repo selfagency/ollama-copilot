@@ -773,7 +773,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
     const initialShouldThink = shouldThink;
 
     // Check if user wants to hide thinking content (only show header)
-    const hideThinkingContent = workspace.getConfiguration('ollama').get<boolean>('hideThinkingContent', true);
+    const hideThinkingContent = workspace.getConfiguration('ollama').get<boolean>('hideThinkingContent', false);
 
     try {
       let response: AsyncIterable<ChatResponse>;
@@ -1559,7 +1559,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
  * Regex pattern for models that support extended thinking / reasoning.
  * Used as a fallback when the /api/show capabilities array is not yet cached.
  */
-const THINKING_MODEL_PATTERN = /qwen3|qwq|deepseek-?r1|cogito|phi\d+-reasoning|kimi|thinking/i;
+const THINKING_MODEL_PATTERN = /qwen3|qwq|deepseek-?r1|phi\d+-reasoning|kimi|thinking/i;
 
 /**
  * Format a text chunk so it renders as a markdown blockquote.

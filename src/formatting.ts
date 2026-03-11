@@ -47,6 +47,10 @@ const OUTPUT_SCRUB_TAG_NAMES = new Set([
   'attachments',
   'attachment',
   'todoList',
+  // Tool-call wrapper tags emitted by some models (JSON or XML format)
+  // that our parser doesn't execute — strip them from visible output.
+  'toolCall',
+  'tool_call',
   'reminderInstructions',
   'userMemory',
   'sessionMemory',
