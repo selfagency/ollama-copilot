@@ -53,7 +53,7 @@
   "devDependencies": {
     "@go-task/cli": "^3.49.1",
     "@octokit/rest": "^22.0.1",
-    "@types/node": "^25.3.5",
+    "@types/node": "^25.4.0",
     "@types/vscode": "^1.109.0",
     "@vitest/coverage-v8": "^4.0.18",
     "@vscode/dts": "^0.4.1",
