@@ -6,18 +6,18 @@ This page gives a detailed overview of the extension architecture and key runtim
 
 ## Module Map
 
-| Module                  | Purpose                                                                                                                                       |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/extension.ts`      | Activation entrypoint: registers provider, chat participant, sidebar, log streaming                                                           |
-| `src/provider.ts`       | VS Code Language Model API provider — handles generate/chat, tools, capability tracking                                                       |
-| `src/sidebar.ts`        | Sidebar tree views, model lifecycle commands (pull/run/stop/delete)                                                                           |
-| `src/modelfiles.ts`     | Modelfile parsing, Modelfiles tree provider, `ollama create` integration                                                                      |
-| `src/completions.ts`    | VS Code inline completion provider using a local Ollama model                                                                                 |
-| `src/formatting.ts`     | Re-exports stream parsing utilities from [`@selfagency/llm-stream-parser`](https://llmstreamparser.self.agency)                               |
-| `src/thinkingParser.ts` | Re-exports `ThinkingParser` from [`@selfagency/llm-stream-parser`](https://llmstreamparser.self.agency)                                       |
-| `src/toolUtils.ts`      | Re-exports XML tool call utilities from [`@selfagency/llm-stream-parser`](https://llmstreamparser.self.agency); Ollama-specific helpers       |
-| `src/diagnostics.ts`    | Centralized structured logging to the VS Code output channel                                                                                  |
-| `src/client.ts`         | Thin Ollama HTTP client wrapper (auth header injection, error normalization)                                                                  |
+| Module                  | Purpose                                                                                                                                 |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/extension.ts`      | Activation entrypoint: registers provider, chat participant, sidebar, log streaming                                                     |
+| `src/provider.ts`       | VS Code Language Model API provider — handles generate/chat, tools, capability tracking                                                 |
+| `src/sidebar.ts`        | Sidebar tree views, model lifecycle commands (pull/run/stop/delete)                                                                     |
+| `src/modelfiles.ts`     | Modelfile parsing, Modelfiles tree provider, `ollama create` integration                                                                |
+| `src/completions.ts`    | VS Code inline completion provider using a local Ollama model                                                                           |
+| `src/formatting.ts`     | Re-exports stream parsing utilities from [`@selfagency/llm-stream-parser`](https://llmstreamparser.self.agency)                         |
+| `src/thinkingParser.ts` | Re-exports `ThinkingParser` from [`@selfagency/llm-stream-parser`](https://llmstreamparser.self.agency)                                 |
+| `src/toolUtils.ts`      | Re-exports XML tool call utilities from [`@selfagency/llm-stream-parser`](https://llmstreamparser.self.agency); Ollama-specific helpers |
+| `src/diagnostics.ts`    | Centralized structured logging to the VS Code output channel                                                                            |
+| `src/client.ts`         | Thin Ollama HTTP client wrapper (auth header injection, error normalization)                                                            |
 
 ## Activation Flow
 

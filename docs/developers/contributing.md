@@ -59,10 +59,10 @@ git commit -m "feat: add my feature"
 
 ## Key Dependencies
 
-| Package | Purpose |
-| ------- | ------- |
+| Package                                                                | Purpose                                                                                          |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | [`@selfagency/llm-stream-parser`](https://llmstreamparser.self.agency) | LLM stream parsing: thinking blocks, XML tool calls, context tag extraction, response formatting |
-| [`ollama`](https://github.com/ollama/ollama-js) | Official Ollama JS SDK |
+| [`ollama`](https://github.com/ollama/ollama-js)                        | Official Ollama JS SDK                                                                           |
 
 ## Code Style
 
