@@ -1,11 +1,11 @@
 ---
 # ollama-models-vscode-y0js
 title: Migrate settings namespace from ollama.* to opilot.* with compatibility fallback
-status: in-progress
+status: completed
 type: feature
 priority: high
 created_at: 2026-03-16T22:24:14Z
-updated_at: 2026-03-16T22:51:35Z
+updated_at: 2026-03-16T22:52:01Z
 ---
 
 ## Context
@@ -23,3 +23,14 @@ Introduce `opilot.*` settings while preserving backward compatibility with exist
 
 ## Tracking
 - Branch: `feat/y0js-opilot-settings-namespace`
+
+## Summary of Changes
+- Added new `opilot.*` settings in extension contributions.
+- Marked legacy `ollama.*` settings as deprecated in the manifest.
+- Implemented runtime namespace compatibility (`opilot` first, `ollama` fallback) via `src/settings.ts`.
+- Added activation-time auto-migration of legacy settings to `opilot.*`.
+- Updated docs/examples to prefer `opilot.*` keys while preserving compatibility.
+- Updated tests for contributions and settings-open behavior.
+
+## Tracking Update
+- PR: https://github.com/selfagency/opilot/pull/73
