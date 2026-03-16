@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-03-16
+
+## What's Changed
+
+- Fix false image attachments from generic chat data parts by @selfagency in https://github.com/selfagency/opilot/pull/70
+
+**Full Changelog**: https://github.com/selfagency/opilot/compare/v1.3.0...v1.3.1
+
+_Source: changes from v1.3.0 to v1.3.1._
+
 ## [1.3.0] - 2026-03-13
 
 ## What's Changed
