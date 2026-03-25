@@ -1938,7 +1938,12 @@ describe('handleChatRequest model selection', () => {
       model: { vendor: 'selfagency-opilot', sendRequest: mockSendRequest },
     };
 
-    await ext.handleChatRequest(mockRequest as any, { history: [] } as any, { markdown: mockMarkdown } as any, mockToken as any);
+    await ext.handleChatRequest(
+      mockRequest as any,
+      { history: [] } as any,
+      { markdown: mockMarkdown } as any,
+      mockToken as any,
+    );
 
     expect(mockMarkdown).toHaveBeenCalledWith('first chunk');
     expect(mockMarkdown).not.toHaveBeenCalledWith('second chunk should not render');

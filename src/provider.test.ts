@@ -2573,7 +2573,7 @@ describe('XML context extraction in message conversion', () => {
     expect(messages?.[1]?.content).toContain('What is 2+2?');
   });
 
-  it('does not promote non-leading XML context tags to system message', async () => {
+  it('injects BASE_SYSTEM_PROMPT but does not promote non-leading XML context tags to system message', async () => {
     const chat = vi.fn().mockImplementation(async function* () {
       yield { message: { content: 'response' } };
     });
@@ -2612,10 +2612,14 @@ describe('XML context extraction in message conversion', () => {
 
     const messages = chat.mock.calls[0]?.[0]?.messages;
 
-    // No system message should be injected
-    expect(messages?.[0]?.role).toBe('user');
+    // BASE_SYSTEM_PROMPT is always injected (no context blocks since tag is non-leading)
+    expect(messages?.[0]?.role).toBe('system');
+    expect(messages?.[0]?.content).toBe(
+      'You are a helpful coding assistant. Answer the user’s questions directly and concisely. Do not mention GitHub Copilot, VS Code, or that you are integrated with an IDE or development tool unless explicitly asked.',
+    );
     // The user message content should be unchanged (including the tag)
-    expect(messages?.[0]?.content).toContain('<environment_info>');
+    expect(messages?.[1]?.role).toBe('user');
+    expect(messages?.[1]?.content).toContain('<environment_info>');
   });
 
   it('deduplicates context blocks across turns, keeping only the most recent per tag', async () => {

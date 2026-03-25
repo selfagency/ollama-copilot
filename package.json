@@ -433,6 +433,26 @@
           "default": false,
           "markdownDescription": "Hide thinking/reasoning content in chat responses. When disabled (default), reasoning tokens stream as a blockquote before the response. When enabled, the thinking block is suppressed entirely."
         },
+        "opilot.repetitionDetection": {
+          "type": "string",
+          "enum": [
+            "off",
+            "conservative",
+            "moderate"
+          ],
+          "enumDescriptions": [
+            "Disable repetition detection.",
+            "Stop when the same phrase (≥20 chars) repeats 3 times consecutively in the last 500 chars of output.",
+            "Stop when the same phrase (≥10 chars) repeats 3 times consecutively in the last 400 chars of output."
+          ],
+          "default": "conservative",
+          "description": "Detect and cancel streaming responses that are stuck in a repetition loop."
+        },
+        "opilot.maxContextTokens": {
+          "type": "number",
+          "default": 0,
+          "markdownDescription": "Override the effective context-window token limit used for message truncation. `0` uses the model-reported value, then the per-model `num_ctx` override, then a built-in default of 8 192 tokens."
+        },
         "ollama.host": {
           "type": "string",
           "default": "http://localhost:11434",
