@@ -1,7 +1,7 @@
 {
   "name": "opilot",
   "displayName": "Opilot",
-  "version": "1.4.1",
+  "version": "1.4.0",
   "description": "Run Ollama models with full tool and vision support in GitHub Copilot Chat. Manage local and remote Ollama instances directly from VS Code.",
   "categories": [
     "AI",
@@ -53,9 +53,9 @@
   "devDependencies": {
     "@go-task/cli": "^3.49.1",
     "@octokit/rest": "^22.0.1",
-    "@types/node": "^25.5.0",
+    "@types/node": "^25.5.2",
     "@types/vscode": "^1.110.0",
-    "@vitest/coverage-v8": "^4.1.1",
+    "@vitest/coverage-v8": "^4.1.2",
     "@vscode/dts": "^0.4.1",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
@@ -64,13 +64,13 @@
     "lint-staged": "^16.4.0",
     "npm-run-all": "^4.1.5",
     "ora": "^9.3.0",
-    "oxfmt": "^0.42.0",
-    "oxlint": "^1.57.0",
-    "oxlint-tsgolint": "^0.17.4",
+    "oxfmt": "^0.43.0",
+    "oxlint": "^1.58.0",
+    "oxlint-tsgolint": "^0.20.0",
     "tsup": "^8.5.1",
     "typescript": "6.0.2",
     "vitepress": "^1.6.4",
-    "vitest": "^4.1.1",
+    "vitest": "^4.1.2",
     "zx": "^8.8.5"
   },
   "contributes": {
