@@ -1,9 +1,11 @@
 ---
 # ollama-models-vscode-eig7
 title: Add MSW for centralised HTTP mocking in unit tests
-status: in-progress
+status: completed
 type: feat
 priority: high
+branch: feat/ollama-models-vscode-eig7-add-msw-http-mocking
+pr: 86
 created_at: 2026-04-06T15:11:31Z
 updated_at: 2026-04-06T15:11:31Z
 ---
@@ -14,14 +16,25 @@ The codebase has no centralised HTTP mocking layer. `openaiCompat.ts` exposes a 
 
 ## Todo
 
-- [ ] Create bean + branch
-- [ ] Install `msw` dev dependency
-- [ ] Create `src/mocks/handlers.ts` (all OpenAI-compat + ollama.com handlers)
-- [ ] Create `src/mocks/node.ts` (`setupServer` export)
-- [ ] Create `src/test/setup.ts` (Vitest `beforeAll`/`afterEach`/`afterAll`)
-- [ ] Update `vitest.config.js` to add `setupFiles`
-- [ ] Remove `fetchFn` from `openaiCompat.ts`
-- [ ] Refactor `openaiCompat.test.ts` to use MSW
-- [ ] Add sidebar fetch coverage in `sidebar.test.ts`
+- [x] Create bean + branch
+- [x] Install `msw` dev dependency
+- [x] Create `src/mocks/handlers.ts` (all OpenAI-compat + ollama.com handlers)
+- [x] Create `src/mocks/node.ts` (`setupServer` export)
+- [x] Create `src/test/setup.ts` (Vitest `beforeAll`/`afterEach`/`afterAll`)
+- [x] Update `vitest.config.js` to add `setupFiles`
+- [x] Remove `fetchFn` from `openaiCompat.ts`
+- [x] Refactor `openaiCompat.test.ts` to use MSW
+- [x] Add sidebar fetch coverage in `sidebar.test.ts`
+
+## Summary of Changes
+
+- Installed MSW 2.x as dev dependency
+- `src/mocks/handlers.ts` — centralized handlers for ollama.com HTML pages, `/api/tags` JSON, and local `/v1/chat/completions` (streaming + non-streaming)
+- `src/mocks/node.ts` — `setupServer` export
+- `src/test/setup.ts` — global Vitest lifecycle hooks
+- `vitest.config.js` — added `setupFiles` + `unstubGlobals: true`
+- Removed `fetchFn` injection from `openaiCompat.ts`; migrated `openaiCompat.test.ts` to MSW
+- Added 11 new MSW-based HTTP tests in `sidebar.test.ts` covering `assertHtmlContentType`, `LibraryModelsProvider`, `CloudModelsProvider`, and `fetchModelPagePreview`
+- All 633 tests pass
 - [ ] Run `task precommit`, fix any issues
 - [ ] Commit and push, open PR
