@@ -3,10 +3,10 @@ import { server } from '../mocks/node.js';
 
 beforeAll(() =>
   server.listen({
-    // Warn (not error) on unhandled requests so that existing tests using
-    // vi.doMock('ollama') for SDK-level calls are not broken. Unhandled
-    // network requests that slip through will be logged for visibility.
-    onUnhandledRequest: 'warn',
+    // Preserve local warning behavior so existing tests using
+    // vi.doMock('ollama') for SDK-level calls are not broken, but fail
+    // fast in CI to prevent accidental external network calls.
+    onUnhandledRequest: process.env.CI ? 'error' : 'warn',
   }),
 );
 

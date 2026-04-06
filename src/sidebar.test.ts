@@ -3399,13 +3399,21 @@ describe('CloudModelsProvider loadCloudCatalogFromNetwork (MSW)', () => {
     await provider.getChildren();
 
     const caps: Set<string> | undefined = provider.cloudCapabilitiesByBase?.get('qwen3');
-    if (caps !== undefined) {
-      expect(caps.has('tools')).toBe(true);
-      expect(caps.has('vision')).toBe(true);
-    }
+    expect(caps).toBeDefined();
+    expect(caps!.has('tools')).toBe(true);
+    expect(caps!.has('vision')).toBe(true);
     provider.dispose?.();
   });
 });
+
+/** Polls `condition` every 20 ms until it returns true or `timeoutMs` elapses. */
+async function waitFor(condition: () => boolean, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() >= deadline) throw new Error(`waitFor timed out after ${timeoutMs}ms`);
+    await new Promise(r => setTimeout(r, 20));
+  }
+}
 
 describe('fetchModelPagePreview via LibraryModelsProvider (MSW)', () => {
   let LibraryModelsProvider: any;
@@ -3442,13 +3450,10 @@ describe('fetchModelPagePreview via LibraryModelsProvider (MSW)', () => {
     const items = await provider.getChildren();
     expect(items.length).toBeGreaterThan(0);
 
-    // Wait briefly for the async preview fetch to complete
-    await new Promise(resolve => setTimeout(resolve, 100));
-
     // The cache snapshot only exposes a count; verify at least one entry was cached.
     const { getModelPreviewCacheSnapshot } = await import('./sidebar.js');
-    const snapshot = getModelPreviewCacheSnapshot();
-    expect(snapshot.entries).toBeGreaterThan(0);
+    await waitFor(() => getModelPreviewCacheSnapshot().entries > 0);
+    expect(getModelPreviewCacheSnapshot().entries).toBeGreaterThan(0);
 
     provider.dispose();
   });
@@ -3474,7 +3479,7 @@ describe('fetchModelPagePreview via LibraryModelsProvider (MSW)', () => {
     expect(item).toBeDefined();
 
     // Wait for async capability fetch to fire treeChangeEmitter
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await waitFor(() => item?.description?.toString().includes('🛠️') ?? false);
     expect(item?.description).toContain('🛠️');
     provider.dispose();
   });
