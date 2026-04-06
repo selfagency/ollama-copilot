@@ -5,7 +5,6 @@ import { http, HttpResponse } from 'msw';
 import { server } from './mocks/node.js';
 import {
   DEFAULT_LIBRARY_MODELS,
-  DEFAULT_CLOUD_MODELS,
   DEFAULT_OLLAMA_API_TAGS,
   libraryPageHtml,
   modelPageHtml,
@@ -3368,8 +3367,8 @@ describe('CloudModelsProvider loadCloudCatalogFromNetwork (MSW)', () => {
   });
 
   it('populates cloud catalog from /api/tags JSON via MSW', async () => {
-    const mockContext = { globalState: { get: vi.fn(() => null), update: vi.fn() } } as any;
-    const provider = new CloudModelsProvider(mockContext) as any;
+    const mockContext = { globalState: { get: vi.fn(() => null), update: vi.fn() } };
+    const provider = new CloudModelsProvider(mockContext as any) as any;
     await provider.getChildren();
 
     const names: string[] = provider.catalogModelNames ?? [];
@@ -3395,8 +3394,8 @@ describe('CloudModelsProvider loadCloudCatalogFromNetwork (MSW)', () => {
       ),
     );
 
-    const mockContext = { globalState: { get: vi.fn(() => null), update: vi.fn() } } as any;
-    const provider = new CloudModelsProvider(mockContext) as any;
+    const mockContext = { globalState: { get: vi.fn(() => null), update: vi.fn() } };
+    const provider = new CloudModelsProvider(mockContext as any) as any;
     await provider.getChildren();
 
     const caps: Set<string> | undefined = provider.cloudCapabilitiesByBase?.get('qwen3');
