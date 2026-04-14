@@ -1,11 +1,12 @@
 ---
 # opilot-fu6s
-title: Execute comprehensive remediation plan from code review
+title: 'Execute comprehensive remediation plan from code review'
 status: todo
 type: milestone
 priority: high
 created_at: 2026-04-14T21:36:48Z
 updated_at: 2026-04-14T21:36:48Z
+id: opilot-fu6s
 ---
 
 Track implementation of the comprehensive remediation plan documented in `docs/plans/remediation-plan.md`.
@@ -22,7 +23,7 @@ This milestone covers all 42 findings across architecture, security, reliability
 
 ## Todo
 
-- [ ] Create remediation epics grouped by category
-- [ ] Create bugs and tasks for all issue inventory items
-- [ ] Validate that the hierarchy covers all 42 findings
+- [x] Create remediation epics grouped by category
+- [x] Create bugs and tasks for all issue inventory items
+- [x] Validate that the hierarchy covers all 43 inventory IDs in the plan
 - [ ] Summarize recommended execution order
