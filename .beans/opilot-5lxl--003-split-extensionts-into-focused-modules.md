@@ -1,11 +1,11 @@
 ---
 # opilot-5lxl
 title: 003 Split extension.ts into focused modules
-status: todo
+status: completed
 type: task
 priority: low
 created_at: 2026-04-14T21:38:28Z
-updated_at: 2026-04-14T21:38:28Z
+updated_at: 2026-04-14T23:23:45Z
 parent: opilot-1ubu
 id: opilot-5lxl
 ---
@@ -27,8 +27,25 @@ Reduce file size and responsibility sprawl by extracting cohesive internal modul
 
 ## Todo
 
-- [ ] Identify coherent seams for extraction based on current responsibilities
-- [ ] Define a small activation/orchestration surface that remains in `extension.ts`
-- [ ] Extract one responsibility group at a time with minimal behavior changes
-- [ ] Update tests or add characterization coverage to guard against regressions
-- [ ] Verify the final module boundaries improve readability without breaking activation flow
+- [x] Identify coherent seams for extraction based on current responsibilities
+- [x] Define a small activation/orchestration surface that remains in `extension.ts`
+- [x] Extract one responsibility group at a time with minimal behavior changes
+- [x] Update tests or add characterization coverage to guard against regressions
+- [x] Verify the final module boundaries improve readability without breaking activation flow
+
+## Summary of Changes
+
+Extracted extension connection/config helper responsibilities from `src/extension.ts` into new `src/extensionHelpers.ts`:
+
+- `isSelectedAction`
+- `handleConfigurationChange`
+- `isLocalHost`
+- `handleConnectionTestFailure`
+- `getOllamaServerLogPath`
+
+`src/extension.ts` now imports and re-exports these helpers, preserving its public/testing surface while reducing internal responsibility sprawl.
+
+Validation run:
+
+- `pnpm vitest run src/extension.utils.test.ts src/extension.test.ts`
+- `pnpm run compile`

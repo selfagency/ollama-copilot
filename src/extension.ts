@@ -2,7 +2,6 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { promises as fsPromises } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { URL } from 'node:url';
 import type { ChatResponse, Message, Ollama, Tool } from 'ollama';
 import * as vscode from 'vscode';
 import { getCloudOllamaClient, getOllamaAuthToken, getOllamaClient, getOllamaHost, testConnection } from './client.js';
@@ -10,6 +9,13 @@ import { OllamaInlineCompletionProvider } from './completions.js';
 import { BASE_SYSTEM_PROMPT, detectsRepetition, resolveContextLimit, truncateMessages } from './contextUtils.js';
 import { createDiagnosticsLogger, getConfiguredLogLevel, type DiagnosticsLogger } from './diagnostics.js';
 import { reportError } from './errorHandler.js';
+import {
+  getOllamaServerLogPath,
+  handleConfigurationChange,
+  handleConnectionTestFailure,
+  isLocalHost,
+  isSelectedAction,
+} from './extensionHelpers.js';
 import {
   createXmlStreamFilter,
   dedupeXmlContextBlocksByTag,
@@ -34,7 +40,7 @@ import {
   type ModelSettingsStore,
 } from './modelSettings.js';
 import { isThinkingModelId, OllamaChatModelProvider } from './provider.js';
-import { affectsSetting, getSetting, migrateLegacySettings, SETTINGS_NAMESPACE } from './settings.js';
+import { getSetting, migrateLegacySettings, SETTINGS_NAMESPACE } from './settings.js';
 import { createModelSettingsViewProvider, MODEL_SETTINGS_VIEW_ID } from './settingsWebview.js';
 import { registerSidebar, type SidebarProfilingSnapshot } from './sidebar.js';
 import { registerStatusBarHeartbeat } from './statusBar.js';
@@ -59,20 +65,15 @@ export function toRuntimeModelId(modelId: string): string {
 
 export { mapOpenAiToolCallsToOllamaLike } from './chatUtils.js';
 export { formatBytes } from './formatUtils.js';
+export {
+  getOllamaServerLogPath,
+  handleConfigurationChange,
+  handleConnectionTestFailure,
+  isLocalHost,
+  isSelectedAction,
+} from './extensionHelpers.js';
 
 // normalizeToolParameters/isToolsNotSupportedError moved to src/toolUtils.ts
-
-export function isSelectedAction(selection: unknown, actionLabel: string): boolean {
-  if (typeof selection === 'string') {
-    return selection === actionLabel;
-  }
-
-  if (selection && typeof selection === 'object' && 'title' in selection) {
-    return (selection as { title?: unknown }).title === actionLabel;
-  }
-
-  return false;
-}
 
 async function removeBuiltInOllamaFromChatLanguageModels(
   context: Pick<vscode.ExtensionContext, 'globalStorageUri'>,
@@ -144,29 +145,6 @@ async function removeBuiltInOllamaFromChatLanguageModels(
   return changed;
 }
 
-/**
- * Handle configuration changes for log level and auto-start log streaming
- */
-export function handleConfigurationChange(
-  event: vscode.ConfigurationChangeEvent,
-  diagnostics: DiagnosticsLogger,
-  onLogLevelChange?: () => void,
-  onAutoStartChange?: (enabled: boolean) => void,
-): void {
-  if (affectsSetting(event, 'diagnostics.logLevel')) {
-    diagnostics.info(`[client] Diagnostics log level changed to: ${getConfiguredLogLevel()}`);
-    onLogLevelChange?.();
-  }
-
-  if (!affectsSetting(event, 'streamLogs')) {
-    return;
-  }
-
-  const enabled = getSetting<boolean>('streamLogs', true);
-  diagnostics.info(`[client] Auto-start log streaming setting changed: ${enabled ? 'enabled' : 'disabled'}`);
-  onAutoStartChange?.(enabled);
-}
-
 function logPerformanceSnapshot(
   diagnostics: DiagnosticsLogger,
   sidebarSnapshot?: SidebarProfilingSnapshot,
@@ -195,81 +173,6 @@ function logPerformanceSnapshot(
 
   diagnostics.info(`[client] ${JSON.stringify(payload)}`);
 }
-export function isLocalHost(host: string): boolean {
-  try {
-    const { hostname } = new URL(host);
-    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
-  } catch {
-    return false;
-  }
-}
-
-export async function handleConnectionTestFailure(
-  host: string,
-  windowApi?: Pick<typeof vscode.window, 'showErrorMessage'> &
-    Partial<Pick<typeof vscode.window, 'showInformationMessage' | 'showWarningMessage'>>,
-  commandsApi?: Pick<typeof vscode.commands, 'executeCommand'>,
-  logOutputChannel?: { show: () => void },
-): Promise<void> {
-  const window = windowApi || vscode.window;
-  const commands = commandsApi || vscode.commands;
-
-  const selection = await window.showErrorMessage(
-    `Cannot connect to Ollama server at ${host}. Please check your ${SETTINGS_NAMESPACE}.host / ollama.host settings and authentication token.`,
-    'Open Settings',
-    'Open Logs',
-  );
-  if (selection === 'Open Settings') {
-    await commands.executeCommand('workbench.action.openSettings', SETTINGS_NAMESPACE);
-    return;
-  }
-
-  if (selection === 'Open Logs') {
-    if (!isLocalHost(host)) {
-      // Remote connection — local Ollama log files won't exist here.
-      // Show the extension output channel (which has the connection error) and
-      // tell the user where to find the remote server logs.
-      logOutputChannel?.show();
-      void (window.showInformationMessage ?? vscode.window.showInformationMessage)(
-        `This is a remote Ollama connection. Check the Ollama server logs on the remote machine at ${host}. Extension connection details are shown in the Opilot output channel.`,
-      );
-      return;
-    }
-
-    // Local connection — attempt to open the platform-specific Ollama log file.
-    const logsPath = getOllamaServerLogPath();
-    if (logsPath) {
-      try {
-        const document = await vscode.workspace.openTextDocument(vscode.Uri.file(logsPath));
-        await vscode.window.showTextDocument(document, { preview: false });
-        return;
-      } catch {
-        void (window.showWarningMessage ?? vscode.window.showWarningMessage)(
-          `Could not open Ollama logs at ${logsPath}.`,
-        );
-        return;
-      }
-    }
-    void (window.showWarningMessage ?? vscode.window.showWarningMessage)(
-      'Ollama logs are not available on this platform via file; try journalctl or check Ollama documentation.',
-    );
-  }
-}
-
-export function getOllamaServerLogPath(): string | null {
-  const platform = process.platform;
-  if (platform === 'darwin') {
-    return join(homedir(), '.ollama', 'logs', 'server.log');
-  }
-  if (platform === 'win32') {
-    const localApp = process.env.LOCALAPPDATA;
-    if (localApp) return join(localApp, 'Ollama', 'server.log');
-    return null;
-  }
-  // On Linux we prefer journalctl; no single log file available
-  return null;
-}
-
 /**
  * Set up chat participant with icon and register it
  */
