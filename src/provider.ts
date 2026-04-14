@@ -2,7 +2,7 @@ import { appendToBlockquote } from '@selfagency/llm-stream-parser/markdown';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { Ollama, type ChatResponse, type Message, type Options, type ShowResponse } from 'ollama';
+import { Ollama, type ChatResponse, type Message, type ShowResponse } from 'ollama';
 import {
   CancellationToken,
   EventEmitter,
@@ -23,6 +23,13 @@ import {
   workspace,
 } from 'vscode';
 import { getCloudOllamaClient, getOllamaAuthToken, getOllamaClient, getOllamaHost } from './client';
+import {
+  buildSdkOptions,
+  nativeSdkChatOnce,
+  nativeSdkStreamChat,
+  openAiCompatChatOnce,
+  openAiCompatStreamChat,
+} from './chatUtils.js';
 import { BASE_SYSTEM_PROMPT, detectsRepetition, resolveContextLimit, truncateMessages } from './contextUtils.js';
 import type { DiagnosticsLogger } from './diagnostics.js';
 import { reportError } from './errorHandler.js';
@@ -32,8 +39,6 @@ import {
   sanitizeNonStreamingModelOutput,
   splitLeadingXmlContextBlocks,
 } from './formatting';
-import { chatCompletionsOnce, initiateChatCompletionsStream } from './openaiCompat.js';
-import { ollamaMessagesToOpenAICompat, ollamaToolsToOpenAICompat } from './openaiCompatMapping.js';
 import { getModelOptionsForModel, type ModelOptionOverrides, type ModelSettingsStore } from './modelSettings.js';
 import { getSetting } from './settings.js';
 import { ThinkingParser } from './thinkingParser.js';
@@ -80,18 +85,6 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
     private outputChannel: DiagnosticsLogger,
     private getModelSettings?: () => ModelSettingsStore,
   ) {}
-
-  private buildSdkOptions(overrides: ModelOptionOverrides): Partial<Options> | undefined {
-    const { temperature, top_p, top_k, num_ctx, num_predict, think_budget } = overrides;
-    const opts: Record<string, number> = {};
-    if (temperature !== undefined) opts['temperature'] = temperature;
-    if (top_p !== undefined) opts['top_p'] = top_p;
-    if (top_k !== undefined) opts['top_k'] = top_k;
-    if (num_ctx !== undefined) opts['num_ctx'] = num_ctx;
-    if (num_predict !== undefined) opts['num_predict'] = num_predict;
-    if (think_budget !== undefined) opts['think_budget'] = think_budget;
-    return Object.keys(opts).length > 0 ? (opts as Partial<Options>) : undefined;
-  }
 
   /**
    * Provide information about available chat models
@@ -501,232 +494,6 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
     return families ? families.includes('clip') || families.includes('vision') : false;
   }
 
-  private mapOpenAiToolCallsToOllamaLike(toolCalls: unknown):
-    | Array<{
-        id?: string;
-        function?: {
-          name?: string;
-          arguments?: Record<string, unknown>;
-        };
-      }>
-    | undefined {
-    if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
-      return undefined;
-    }
-
-    const mapped: Array<{
-      id?: string;
-      function?: {
-        name?: string;
-        arguments?: Record<string, unknown>;
-      };
-    }> = [];
-
-    for (const call of toolCalls) {
-      if (!call || typeof call !== 'object') {
-        continue;
-      }
-
-      const typed = call as {
-        id?: unknown;
-        function?: {
-          name?: unknown;
-          arguments?: unknown;
-        };
-      };
-
-      let parsedArgs: Record<string, unknown> = {};
-      if (typeof typed.function?.arguments === 'string' && typed.function.arguments.trim()) {
-        try {
-          const parsed = JSON.parse(typed.function.arguments);
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            parsedArgs = parsed as Record<string, unknown>;
-          }
-        } catch {
-          parsedArgs = {};
-        }
-      }
-
-      mapped.push({
-        id: typeof typed.id === 'string' ? typed.id : undefined,
-        function: {
-          name: typeof typed.function?.name === 'string' ? typed.function.name : undefined,
-          arguments: parsedArgs,
-        },
-      });
-    }
-
-    return mapped;
-  }
-
-  private async openAiCompatStreamChat(
-    runtimeModelId: string,
-    messages: Message[],
-    tools: Parameters<typeof this.client.chat>[0]['tools'] | undefined,
-    shouldThink: boolean,
-    fallbackClient: Ollama,
-    signal?: AbortSignal,
-    modelOptions?: ModelOptionOverrides,
-  ): Promise<AsyncIterable<ChatResponse>> {
-    const { temperature, top_p, top_k, num_ctx, num_predict, think_budget } = modelOptions ?? {};
-    let stream: AsyncIterable<import('./openaiCompat.js').OpenAICompatChatCompletionChunk>;
-    try {
-      const baseUrl = getOllamaHost();
-      const authToken = await getOllamaAuthToken(this.context);
-
-      // Use initiateChatCompletionsStream (eager fetch) so that any connection
-      // or HTTP error is thrown here, allowing the catch below to fall back to
-      // fallbackClient.chat() rather than surfacing during generator iteration.
-      stream = await initiateChatCompletionsStream({
-        baseUrl,
-        authToken,
-        signal,
-        request: {
-          model: runtimeModelId,
-          messages: ollamaMessagesToOpenAICompat(messages),
-          tools: ollamaToolsToOpenAICompat(tools),
-          ...(shouldThink ? { think: true } : {}),
-          ...(temperature !== undefined ? { temperature } : {}),
-          ...(top_p !== undefined ? { top_p } : {}),
-          ...(num_predict !== undefined ? { max_tokens: num_predict } : {}),
-          ...(top_k !== undefined ? { top_k } : {}),
-          ...(num_ctx !== undefined ? { num_ctx } : {}),
-          ...(think_budget !== undefined ? { think_budget } : {}),
-        },
-      });
-    } catch {
-      const sdkOptions = modelOptions ? this.buildSdkOptions(modelOptions) : undefined;
-      return fallbackClient.chat({
-        model: runtimeModelId,
-        messages,
-        stream: true,
-        tools,
-        ...(shouldThink ? { think: true } : {}),
-        ...(sdkOptions ? { options: sdkOptions } : {}),
-      });
-    }
-
-    return (async function* (provider: OllamaChatModelProvider): AsyncGenerator<ChatResponse> {
-      for await (const chunk of stream) {
-        const choice = chunk.choices?.[0];
-        const delta = choice?.delta;
-        const content = typeof delta?.content === 'string' ? delta.content : '';
-        const thinking = typeof delta?.reasoning === 'string' ? delta.reasoning : undefined;
-        const mappedToolCalls = provider.mapOpenAiToolCallsToOllamaLike(delta?.tool_calls);
-
-        const out: ChatResponse = {
-          message: {
-            role: 'assistant',
-            content,
-            ...(thinking ? { thinking } : {}),
-            ...(mappedToolCalls ? { tool_calls: mappedToolCalls } : {}),
-          },
-          done: choice?.finish_reason != null,
-        } as ChatResponse;
-
-        yield out;
-      }
-    })(this);
-  }
-
-  private async openAiCompatChatOnce(
-    runtimeModelId: string,
-    messages: Message[],
-    tools: Parameters<typeof this.client.chat>[0]['tools'] | undefined,
-    shouldThink: boolean,
-    fallbackClient: Ollama,
-    signal?: AbortSignal,
-    modelOptions?: ModelOptionOverrides,
-  ): Promise<ChatResponse> {
-    const { temperature, top_p, top_k, num_ctx, num_predict, think_budget } = modelOptions ?? {};
-    let response: import('./openaiCompat.js').OpenAICompatChatCompletionResponse;
-    try {
-      const baseUrl = getOllamaHost();
-      const authToken = await getOllamaAuthToken(this.context);
-
-      response = await chatCompletionsOnce({
-        baseUrl,
-        authToken,
-        signal,
-        request: {
-          model: runtimeModelId,
-          messages: ollamaMessagesToOpenAICompat(messages),
-          tools: ollamaToolsToOpenAICompat(tools),
-          ...(shouldThink ? { think: true } : {}),
-          ...(temperature !== undefined ? { temperature } : {}),
-          ...(top_p !== undefined ? { top_p } : {}),
-          ...(num_predict !== undefined ? { max_tokens: num_predict } : {}),
-          ...(top_k !== undefined ? { top_k } : {}),
-          ...(num_ctx !== undefined ? { num_ctx } : {}),
-          ...(think_budget !== undefined ? { think_budget } : {}),
-        },
-      });
-    } catch {
-      const sdkOptions = modelOptions ? this.buildSdkOptions(modelOptions) : undefined;
-      return (await fallbackClient.chat({
-        model: runtimeModelId,
-        messages,
-        stream: false,
-        tools,
-        ...(shouldThink ? { think: true } : {}),
-        ...(sdkOptions ? { options: sdkOptions } : {}),
-      })) as ChatResponse;
-    }
-
-    const choice = response.choices?.[0];
-    const content = typeof choice?.message?.content === 'string' ? choice.message.content : '';
-    const thinking = typeof choice?.message?.reasoning === 'string' ? choice.message.reasoning : undefined;
-    const mappedToolCalls = this.mapOpenAiToolCallsToOllamaLike(choice?.message?.tool_calls);
-
-    return {
-      message: {
-        role: 'assistant',
-        content,
-        ...(thinking ? { thinking } : {}),
-        ...(mappedToolCalls ? { tool_calls: mappedToolCalls } : {}),
-      },
-      done: true,
-    } as ChatResponse;
-  }
-
-  private async nativeSdkStreamChat(
-    runtimeModelId: string,
-    messages: Message[],
-    tools: Parameters<typeof this.client.chat>[0]['tools'] | undefined,
-    shouldThink: boolean,
-    client: Ollama,
-    modelOptions?: ModelOptionOverrides,
-  ): Promise<AsyncIterable<ChatResponse>> {
-    const sdkOptions = modelOptions ? this.buildSdkOptions(modelOptions) : undefined;
-    return client.chat({
-      model: runtimeModelId,
-      messages,
-      stream: true,
-      tools,
-      ...(shouldThink ? { think: true } : {}),
-      ...(sdkOptions ? { options: sdkOptions } : {}),
-    });
-  }
-
-  private async nativeSdkChatOnce(
-    runtimeModelId: string,
-    messages: Message[],
-    tools: Parameters<typeof this.client.chat>[0]['tools'] | undefined,
-    shouldThink: boolean,
-    client: Ollama,
-    modelOptions?: ModelOptionOverrides,
-  ): Promise<ChatResponse> {
-    const sdkOptions = modelOptions ? this.buildSdkOptions(modelOptions) : undefined;
-    return (await client.chat({
-      model: runtimeModelId,
-      messages,
-      stream: false,
-      tools,
-      ...(shouldThink ? { think: true } : {}),
-      ...(sdkOptions ? { options: sdkOptions } : {}),
-    })) as ChatResponse;
-  }
-
   /**
    * Satisfy a VS Code Language Model API chat request by streaming through Ollama.
    *
@@ -830,12 +597,54 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
       let response: AsyncIterable<ChatResponse>;
       let effectiveTools = tools;
 
+      const resolveCloudTransport = async (): Promise<{ baseUrl: string; authToken?: string } | undefined> => {
+        if (!isCloudModel) {
+          return undefined;
+        }
+        try {
+          return {
+            baseUrl: getOllamaHost(),
+            authToken: await getOllamaAuthToken(this.context),
+          };
+        } catch {
+          return undefined;
+        }
+      };
+
       // Choose API path: native Ollama SDK for local models, OpenAI-compat for cloud
       const streamFn = isCloudModel
-        ? (think: boolean, t?: typeof tools) =>
-            this.openAiCompatStreamChat(runtimeModelId, ollamaMessages as Message[], t, think, perRequestClient, undefined, modelOptions)
+        ? async (think: boolean, t?: typeof tools) => {
+            const transport = await resolveCloudTransport();
+            if (!transport) {
+              return nativeSdkStreamChat({
+                modelId: runtimeModelId,
+                messages: ollamaMessages as Message[],
+                tools: t,
+                shouldThink: think,
+                effectiveClient: perRequestClient,
+                modelOptions,
+              });
+            }
+            return openAiCompatStreamChat({
+              modelId: runtimeModelId,
+              messages: ollamaMessages as Message[],
+              tools: t,
+              shouldThink: think,
+              effectiveClient: perRequestClient,
+              baseUrl: transport.baseUrl,
+              authToken: transport.authToken,
+              modelOptions,
+            });
+          }
         : (think: boolean, t?: typeof tools) =>
-            this.nativeSdkStreamChat(runtimeModelId, ollamaMessages as Message[], t, think, perRequestClient, modelOptions);
+            nativeSdkStreamChat({
+              modelId: runtimeModelId,
+              messages: ollamaMessages as Message[],
+              tools: t,
+              shouldThink: think,
+              effectiveClient: perRequestClient,
+              modelOptions,
+            });
 
       try {
         this.outputChannel.info(
@@ -1011,25 +820,38 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
         this.outputChannel.warn(`[client] stream returned no output for ${runtimeModelId}; retrying with stream=false`);
 
         const fallbackFn = isCloudModel
-          ? (think: boolean) =>
-              this.openAiCompatChatOnce(
-                runtimeModelId,
-                ollamaMessages as Message[],
-                effectiveTools,
-                think,
-                perRequestClient,
-                undefined,
+          ? async (think: boolean) => {
+              const transport = await resolveCloudTransport();
+              if (!transport) {
+                return nativeSdkChatOnce({
+                  modelId: runtimeModelId,
+                  messages: ollamaMessages as Message[],
+                  tools: effectiveTools,
+                  shouldThink: think,
+                  effectiveClient: perRequestClient,
+                  modelOptions,
+                });
+              }
+              return openAiCompatChatOnce({
+                modelId: runtimeModelId,
+                messages: ollamaMessages as Message[],
+                tools: effectiveTools,
+                shouldThink: think,
+                effectiveClient: perRequestClient,
+                baseUrl: transport.baseUrl,
+                authToken: transport.authToken,
                 modelOptions,
-              )
+              });
+            }
           : (think: boolean) =>
-              this.nativeSdkChatOnce(
-                runtimeModelId,
-                ollamaMessages as Message[],
-                effectiveTools,
-                think,
-                perRequestClient,
+              nativeSdkChatOnce({
+                modelId: runtimeModelId,
+                messages: ollamaMessages as Message[],
+                tools: effectiveTools,
+                shouldThink: think,
+                effectiveClient: perRequestClient,
                 modelOptions,
-              );
+              });
 
         const fallback = await fallbackFn(shouldThink);
         this.outputChannel.info(`[client] non-stream fallback response: ${JSON.stringify(fallback, null, 2)}`);
@@ -1091,15 +913,14 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
 
         for (const attempt of rescueAttempts) {
           try {
-            const rescued = await this.openAiCompatChatOnce(
-              runtimeModelId,
-              attempt.messages,
-              attempt.tools,
-              attempt.think,
-              perRequestClient,
-              undefined,
+            const rescued = await nativeSdkChatOnce({
+              modelId: runtimeModelId,
+              messages: attempt.messages,
+              tools: attempt.tools,
+              shouldThink: attempt.think,
+              effectiveClient: perRequestClient,
               modelOptions,
-            );
+            });
 
             const hasContent =
               rescued.message?.content || rescued.message?.thinking || rescued.message?.tool_calls?.length;
