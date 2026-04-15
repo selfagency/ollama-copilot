@@ -5,6 +5,21 @@ import type { DiagnosticsLogger } from './diagnostics.js';
 import { getConfiguredLogLevel } from './diagnostics.js';
 import { affectsSetting, getSetting, SETTINGS_NAMESPACE } from './settings.js';
 
+export function redactDisplayHost(host: string): string {
+  try {
+    const parsed = new URL(host);
+    if (!parsed.username && !parsed.password) {
+      return host;
+    }
+
+    parsed.username = '';
+    parsed.password = '';
+    return parsed.toString();
+  } catch {
+    return host;
+  }
+}
+
 export function isSelectedAction(selection: unknown, actionLabel: string): boolean {
   if (typeof selection === 'string') {
     return selection === actionLabel;
@@ -58,9 +73,10 @@ export async function handleConnectionTestFailure(
 ): Promise<void> {
   const window = windowApi || vscode.window;
   const commands = commandsApi || vscode.commands;
+  const safeHost = redactDisplayHost(host);
 
   const selection = await window.showErrorMessage(
-    `Cannot connect to Ollama server at ${host}. Please check your ${SETTINGS_NAMESPACE}.host / ollama.host settings and authentication token.`,
+    `Cannot connect to Ollama server at ${safeHost}. Please check your ${SETTINGS_NAMESPACE}.host / ollama.host settings and authentication token.`,
     'Open Settings',
     'Open Logs',
   );
@@ -76,7 +92,7 @@ export async function handleConnectionTestFailure(
       // tell the user where to find the remote server logs.
       logOutputChannel?.show();
       void (window.showInformationMessage ?? vscode.window.showInformationMessage)(
-        `This is a remote Ollama connection. Check the Ollama server logs on the remote machine at ${host}. Extension connection details are shown in the Opilot output channel.`,
+        `This is a remote Ollama connection. Check the Ollama server logs on the remote machine at ${safeHost}. Extension connection details are shown in the Opilot output channel.`,
       );
       return;
     }

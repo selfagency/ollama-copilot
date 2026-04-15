@@ -66,6 +66,7 @@ beforeEach(() => {
     getOllamaAuthToken: vi.fn(),
     getOllamaHost: vi.fn(() => 'http://localhost:11434'),
     testConnection: vi.fn(),
+    redactUrlCredentials: vi.fn((value: string) => value),
   }));
 
   vi.doMock('./diagnostics.js', () => ({

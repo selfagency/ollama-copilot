@@ -107,6 +107,7 @@ describe('activate', () => {
         show: vi.fn().mockResolvedValue({ template: '' }),
       }),
       testConnection: vi.fn().mockResolvedValue(true),
+      redactUrlCredentials: vi.fn((value: string) => value),
     }));
 
     vi.doMock('./provider.js', () => ({
@@ -1695,6 +1696,17 @@ describe('handleConnectionTestFailure', () => {
 
     expect(logOutputChannel.show).toHaveBeenCalled();
     expect(showInformationMessage).toHaveBeenCalledWith(expect.stringContaining('remote Ollama connection'));
+  });
+
+  it('redacts URL credentials in displayed connection error messages', async () => {
+    const showErrorMessage = vi.fn().mockResolvedValue(undefined);
+
+    const ext = await import('./extension.js');
+    await ext.handleConnectionTestFailure('http://alice:secret@remote-server:11434', { showErrorMessage });
+
+    const firstArg = showErrorMessage.mock.calls[0]?.[0] as string;
+    expect(firstArg).toContain('http://remote-server:11434/');
+    expect(firstArg).not.toContain('alice:secret');
   });
 });
 

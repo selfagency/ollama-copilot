@@ -22,6 +22,24 @@ export async function getOllamaAuthHeaders(context: ExtensionContext): Promise<R
 }
 
 /**
+ * Redact username/password from URL-like host strings for safe display in logs and errors.
+ */
+export function redactUrlCredentials(urlOrHost: string): string {
+  try {
+    const parsed = new URL(urlOrHost);
+    if (!parsed.username && !parsed.password) {
+      return urlOrHost;
+    }
+
+    parsed.username = '';
+    parsed.password = '';
+    return parsed.toString();
+  } catch {
+    return urlOrHost;
+  }
+}
+
+/**
  * Get or create an Ollama client instance configured with the current settings.
  *
  * Security notes:

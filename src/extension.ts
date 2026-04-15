@@ -15,6 +15,7 @@ import {
   handleConnectionTestFailure,
   isLocalHost,
   isSelectedAction,
+  redactDisplayHost,
 } from './extensionHelpers.js';
 import {
   createXmlStreamFilter,
@@ -1015,7 +1016,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const client = await getOllamaClient(context);
   const host = getSetting<string>('host', 'http://localhost:11434');
   const autoStartLogStreaming = getSetting<boolean>('streamLogs', true);
-  diagnostics.info(`[client] configured host: ${host}`);
+  diagnostics.info(`[client] configured host: ${redactDisplayHost(host)}`);
   diagnostics.info(`[client] auto-start log streaming: ${autoStartLogStreaming ? 'enabled' : 'disabled'}`);
   diagnostics.info(`[client] diagnostics log level: ${getConfiguredLogLevel()}`);
 

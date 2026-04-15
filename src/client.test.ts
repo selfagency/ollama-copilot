@@ -169,6 +169,16 @@ describe('getOllamaHost / getOllamaAuthToken / getOllamaAuthHeaders / getCloudOl
     expect(getHostWithDefault()).toBe('http://localhost:11434');
   });
 
+  it('redactUrlCredentials removes URL userinfo but preserves host details', async () => {
+    vi.doMock('vscode', () => makeVscodeMock());
+    vi.doMock('ollama', () => ({ Ollama: class {} }));
+
+    const { redactUrlCredentials } = await import('./client.js');
+    expect(redactUrlCredentials('https://alice:secret@example.com:11434/path')).toBe('https://example.com:11434/path');
+    expect(redactUrlCredentials('http://localhost:11434')).toBe('http://localhost:11434');
+    expect(redactUrlCredentials('not-a-url')).toBe('not-a-url');
+  });
+
   it('getOllamaAuthToken returns token from secret storage', async () => {
     vi.doMock('vscode', () => makeVscodeMock());
     vi.doMock('ollama', () => ({ Ollama: class {} }));
