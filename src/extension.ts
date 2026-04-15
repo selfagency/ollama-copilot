@@ -371,6 +371,11 @@ export async function handleChatRequest(
     // Resolve per-model generation overrides (temperature, top_p, top_k, num_ctx, num_predict, think, think_budget).
     const modelOptions = modelSettings ? getModelOptionsForModel(modelSettings, modelId) : {};
 
+    // Timeout policy: no hard global request timeout is enforced here.
+    // Long generations are terminated via cooperative cancellation
+    // (`token.isCancellationRequested`) so streaming responses are not cut off
+    // unpredictably for slow but healthy models.
+
     try {
       // Convert VS Code messages to the plain Ollama format expected by the client.
       //
