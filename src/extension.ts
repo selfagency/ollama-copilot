@@ -512,8 +512,10 @@ export async function handleChatRequest(
                   },
                   token,
                 );
-              } catch {
-                /* ignore — task_complete failure should not block response */
+              } catch (taskCompleteError) {
+                const message =
+                  taskCompleteError instanceof Error ? taskCompleteError.message : String(taskCompleteError);
+                outputChannel?.warn(`[client] task_complete invocation failed (native path): ${message}`);
               }
               break;
             }
@@ -902,8 +904,9 @@ export async function handleChatRequest(
               { input: tc.input as Record<string, unknown>, toolInvocationToken: request.toolInvocationToken },
               token,
             );
-          } catch {
-            /* ignore */
+          } catch (taskCompleteError) {
+            const message = taskCompleteError instanceof Error ? taskCompleteError.message : String(taskCompleteError);
+            outputChannel?.warn(`[client] task_complete invocation failed (vscode-lm path): ${message}`);
           }
         }
         break;
