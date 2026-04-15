@@ -196,6 +196,22 @@ function createThemeIcon(id: string): ThemeIcon {
   return new ThemeIconCtor(id);
 }
 
+function getNumberField(record: unknown, key: string): number | undefined {
+  if (!record || typeof record !== 'object') {
+    return undefined;
+  }
+  const value = (record as Record<string, unknown>)[key];
+  return typeof value === 'number' ? value : undefined;
+}
+
+function getStringField(record: unknown, key: string): string | undefined {
+  if (!record || typeof record !== 'object') {
+    return undefined;
+  }
+  const value = (record as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
 function updateItemTooltip(item: ModelTreeItem, tooltip: string, emitter: EventEmitter<ModelTreeItem | null>): void {
   if (typeof item.tooltip === 'string' && item.tooltip === tooltip) {
     return;
@@ -797,15 +813,15 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
 
       const runningMap = new Map<string, RunningProcessInfo>();
       for (const model of psResponse.models) {
-        const modelRecord = model as unknown as Record<string, unknown>;
         const durationMs = model.expires_at
           ? Math.max(0, new Date(model.expires_at).getTime() - Date.now())
           : undefined;
-        const id = typeof modelRecord.digest === 'string' ? modelRecord.digest.slice(0, 12) : undefined;
+        const digest = getStringField(model, 'digest');
+        const id = digest ? digest.slice(0, 12) : undefined;
 
         let processor: string | undefined;
-        const sizeVram = typeof modelRecord.size_vram === 'number' ? modelRecord.size_vram : undefined;
-        const size = typeof modelRecord.size === 'number' ? modelRecord.size : undefined;
+        const sizeVram = getNumberField(model, 'size_vram');
+        const size = getNumberField(model, 'size');
         if (typeof sizeVram === 'number' && typeof size === 'number' && size > 0) {
           const gpuPct = Math.min(100, Math.max(0, Math.round((sizeVram / size) * 100)));
           processor = gpuPct > 0 ? `${gpuPct}% GPU` : 'CPU';

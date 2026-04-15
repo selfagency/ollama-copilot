@@ -1,13 +1,12 @@
 ---
 # opilot-c9vd
 title: 013 Reduce unsafe type assertions with runtime validation
-status: todo
+status: completed
 type: task
 priority: normal
 created_at: 2026-04-14T21:39:09Z
-updated_at: 2026-04-14T21:39:09Z
+updated_at: 2026-04-15T09:16:30Z
 parent: opilot-qi3q
-id: opilot-c9vd
 ---
 
 Source issue 013 from `docs/plans/remediation-plan.md`.
@@ -26,8 +25,20 @@ Replace assertion-heavy boundaries with narrow validation helpers or better-type
 
 ## Todo
 
-- [ ] Inventory the highest-risk `as` assertions in production paths
-- [ ] Group them by boundary type such as config, API response, or VS Code payload
-- [ ] Introduce runtime checks or typed helpers for the riskiest cases
-- [ ] Add tests for malformed or partial input shapes
-- [ ] Verify the resulting code reduces unsafe assertions without excessive noise
+- [x] Inventory the highest-risk `as` assertions in production paths
+- [x] Group them by boundary type such as config, API response, or VS Code payload
+- [x] Introduce runtime checks or typed helpers for the riskiest cases
+- [x] Add tests for malformed or partial input shapes
+- [x] Verify the resulting code reduces unsafe assertions without excessive noise
+
+## Summary of Changes
+
+- Replaced assertion-heavy record reads in production paths with narrow runtime field validators:
+  - `src/statusBar.ts`: `checkOllamaHealth` now uses guarded `getNumberField(...)` lookups for `size` and `size_vram`.
+  - `src/sidebar.ts`: local-running process parsing now uses `getNumberField(...)`/`getStringField(...)` helpers instead of raw record casts.
+- Added regression coverage in `src/statusBar.test.ts` for malformed numeric fields, ensuring safe fallback to `0`.
+
+Validation run:
+
+- `pnpm vitest run src/statusBar.test.ts src/sidebar.test.ts src/sidebar.utils.test.ts`
+- `pnpm run compile`

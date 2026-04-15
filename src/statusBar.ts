@@ -8,6 +8,14 @@ import { affectsSetting, getSetting } from './settings.js';
 const MIN_INTERVAL_MS = 5_000;
 const DEBOUNCE_FAILURE_COUNT = 2;
 
+function getNumberField(record: unknown, key: string): number | undefined {
+  if (!record || typeof record !== 'object') {
+    return undefined;
+  }
+  const value = (record as Record<string, unknown>)[key];
+  return typeof value === 'number' ? value : undefined;
+}
+
 function getHeartbeatIntervalMs(): number {
   const seconds = getSetting<number>('localModelRefreshInterval', 30);
   return Math.max(seconds * 1_000, MIN_INTERVAL_MS);
@@ -48,14 +56,11 @@ export async function checkOllamaHealth(client: Ollama, host: string): Promise<H
   const checkedAt = new Date();
   try {
     const { models } = await client.ps();
-    const runningModels: RunningModelInfo[] = models.map(m => {
-      const rec = m as unknown as Record<string, unknown>;
-      return {
-        name: m.name,
-        size: typeof rec.size === 'number' ? rec.size : 0,
-        sizeVram: typeof rec.size_vram === 'number' ? rec.size_vram : 0,
-      };
-    });
+    const runningModels: RunningModelInfo[] = models.map(m => ({
+      name: m.name,
+      size: getNumberField(m, 'size') ?? 0,
+      sizeVram: getNumberField(m, 'size_vram') ?? 0,
+    }));
     return { online: true, runningCount: runningModels.length, runningModels, host, checkedAt };
   } catch {
     return { online: false, runningCount: 0, runningModels: [], host, checkedAt };
