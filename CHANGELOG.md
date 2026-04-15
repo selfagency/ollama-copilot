@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-04-15
+
+## What's Changed
+
+- chore(remediation): comprehensive codebase remediation — security, reliability, performance, and code quality by @selfagency in https://github.com/selfagency/opilot/pull/92
+
+**Full Changelog**: https://github.com/selfagency/opilot/compare/v1.5.0...v1.6.0
+
+_Source: changes from v1.5.0 to v1.6.0._
+
 ## [1.5.0] - 2026-04-06
 
 ## What's Changed
