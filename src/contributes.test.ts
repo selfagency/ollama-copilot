@@ -132,7 +132,7 @@ describe('package contributes integrity', () => {
     expect(prop?.default).toBe(true);
   });
 
-  it('marks legacy ollama.* settings as deprecated', () => {
+  it('does not declare legacy ollama.* settings in contributes.configuration', () => {
     const pkg = loadPackageJson();
     const properties = pkg.contributes?.configuration?.properties ?? {};
     const legacyKeys = [
@@ -148,7 +148,7 @@ describe('package contributes integrity', () => {
     ];
 
     for (const key of legacyKeys) {
-      expect(properties[key]?.deprecationMessage).toContain('Deprecated: use opilot.');
+      expect(properties[key]).toBeUndefined();
     }
   });
 
