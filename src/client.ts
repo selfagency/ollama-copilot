@@ -97,12 +97,22 @@ export interface ModelCapabilities {
 /**
  * Test connection to Ollama server
  */
-export async function testConnection(client: Ollama): Promise<boolean> {
+export async function testConnection(client: Ollama, timeoutMs = 5_000): Promise<boolean> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   try {
-    await client.list();
+    await Promise.race([
+      client.list(),
+      new Promise((_, reject) => {
+        timeoutHandle = setTimeout(() => reject(new Error('ETIMEDOUT')), timeoutMs);
+      }),
+    ]);
     return true;
   } catch {
     return false;
+  } finally {
+    if (timeoutHandle !== undefined) {
+      clearTimeout(timeoutHandle);
+    }
   }
 }
 

@@ -277,6 +277,32 @@ describe('testConnection', () => {
 
     expect(result).toBe(false);
   });
+
+  it('returns false when list() exceeds timeout', async () => {
+    vi.doMock('vscode', () => makeVscodeMock());
+    vi.doMock('ollama', () => ({ Ollama: class {} }));
+
+    const { testConnection } = await import('./client.js');
+    const client = { list: vi.fn().mockImplementation(() => new Promise(() => {})) } as any;
+
+    const result = await testConnection(client, 5);
+
+    expect(result).toBe(false);
+  });
+
+  it('returns false when list() is cancelled', async () => {
+    vi.doMock('vscode', () => makeVscodeMock());
+    vi.doMock('ollama', () => ({ Ollama: class {} }));
+
+    const { testConnection } = await import('./client.js');
+    const client = {
+      list: vi.fn().mockRejectedValue(Object.assign(new Error('aborted'), { name: 'AbortError' })),
+    } as any;
+
+    const result = await testConnection(client);
+
+    expect(result).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
