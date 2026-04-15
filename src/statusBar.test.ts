@@ -108,6 +108,16 @@ describe('checkOllamaHealth', () => {
     expect(result.online).toBe(true);
     expect(result.runningCount).toBe(0);
   });
+
+  it('coerces malformed numeric fields to 0 instead of trusting unsafe shapes', async () => {
+    const client = makeClient([{ name: 'llama3.2', size: 'not-a-number' as unknown as number, size_vram: undefined }]);
+    const result = await checkOllamaHealth(client, 'http://localhost:11434');
+
+    expect(result.online).toBe(true);
+    expect(result.runningCount).toBe(1);
+    expect(result.runningModels[0].size).toBe(0);
+    expect(result.runningModels[0].sizeVram).toBe(0);
+  });
 });
 
 describe('registerStatusBarHeartbeat', () => {

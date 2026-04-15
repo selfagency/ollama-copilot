@@ -1,11 +1,23 @@
 import type { Ollama } from 'ollama';
 import * as vscode from 'vscode';
 import type { DiagnosticsLogger } from './diagnostics.js';
+import { formatBytes } from './formatUtils.js';
 import { affectsSetting, getSetting } from './settings.js';
 
 /** Minimum poll interval enforced regardless of setting value (5 seconds). */
 const MIN_INTERVAL_MS = 5_000;
 const DEBOUNCE_FAILURE_COUNT = 2;
+
+function getNumberField(record: unknown, key: string): number | undefined {
+  if (!record || typeof record !== 'object') {
+    return undefined;
+  }
+  if (!Object.hasOwn(record, key)) {
+    return undefined;
+  }
+  const value = (record as Record<string, unknown>)[key];
+  return typeof value === 'number' ? value : undefined;
+}
 
 function getHeartbeatIntervalMs(): number {
   const seconds = getSetting<number>('localModelRefreshInterval', 30);
@@ -38,14 +50,6 @@ export interface HealthCheckResult {
   checkedAt: Date;
 }
 
-/** Format bytes as a human-readable string (e.g. "3.72 GB"). */
-function formatBytes(bytes: number): string {
-  if (bytes < 1_024) return `${bytes} B`;
-  if (bytes < 1_048_576) return `${(bytes / 1_024).toFixed(1)} KB`;
-  if (bytes < 1_073_741_824) return `${(bytes / 1_048_576).toFixed(1)} MB`;
-  return `${(bytes / 1_073_741_824).toFixed(2)} GB`;
-}
-
 /**
  * Perform a single health check against the Ollama server.
  * Uses ps() to get running models and their resource usage.
@@ -55,14 +59,11 @@ export async function checkOllamaHealth(client: Ollama, host: string): Promise<H
   const checkedAt = new Date();
   try {
     const { models } = await client.ps();
-    const runningModels: RunningModelInfo[] = models.map(m => {
-      const rec = m as unknown as Record<string, unknown>;
-      return {
-        name: m.name,
-        size: typeof rec.size === 'number' ? rec.size : 0,
-        sizeVram: typeof rec.size_vram === 'number' ? rec.size_vram : 0,
-      };
-    });
+    const runningModels: RunningModelInfo[] = models.map(m => ({
+      name: m.name,
+      size: getNumberField(m, 'size') ?? 0,
+      sizeVram: getNumberField(m, 'size_vram') ?? 0,
+    }));
     return { online: true, runningCount: runningModels.length, runningModels, host, checkedAt };
   } catch {
     return { online: false, runningCount: 0, runningModels: [], host, checkedAt };
@@ -130,7 +131,7 @@ export function registerStatusBarHeartbeat(
   host: string,
   diagnostics: DiagnosticsLogger,
 ): StatusBarHeartbeatRegistration {
-  const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  const item = vscode.window.createStatusBarItem('opilot.status', vscode.StatusBarAlignment.Right, 100);
   item.command = 'opilot.checkServerHealth';
   item.text = `$(loading~spin) Ollama…`;
   item.tooltip = 'Checking Ollama server…';

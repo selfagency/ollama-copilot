@@ -66,6 +66,7 @@ beforeEach(() => {
     getOllamaAuthToken: vi.fn(),
     getOllamaHost: vi.fn(() => 'http://localhost:11434'),
     testConnection: vi.fn(),
+    redactUrlCredentials: vi.fn((value: string) => value),
   }));
 
   vi.doMock('./diagnostics.js', () => ({
@@ -145,6 +146,16 @@ describe('extension utility helpers', () => {
     const { getOllamaServerLogPath } = await import('./extension.js');
     const result = getOllamaServerLogPath();
     expect(result === null || typeof result === 'string').toBe(true);
+  });
+
+  it('getWindowsLogTailPowerShellArgs builds structured args and escapes single quotes in path', async () => {
+    const { getWindowsLogTailPowerShellArgs } = await import('./extension.js');
+
+    const args = getWindowsLogTailPowerShellArgs("C:/Users/O'Neil/AppData/Local");
+    expect(args[0]).toBe('-NoProfile');
+    expect(args[1]).toBe('-Command');
+    expect(args[2]).toContain("C:/Users/O''Neil/AppData/Local");
+    expect(args[2]).toContain('Get-Content -LiteralPath $p -Tail 200 -Wait');
   });
 
   it('handleConfigurationChange triggers callbacks for relevant settings', async () => {

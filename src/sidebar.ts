@@ -1,4 +1,4 @@
-import { exec } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { homedir, totalmem } from 'node:os';
 import { join } from 'node:path';
@@ -26,7 +26,34 @@ import { reportError } from './errorHandler.js';
 import { isThinkingModelId } from './provider.js';
 import { affectsSetting, getSetting } from './settings.js';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+export async function readLinuxJournalctlLogs(
+  runCommand: (file: string, args: string[]) => Promise<{ stdout: string }> = (file, args) =>
+    execFileAsync(file, args) as Promise<{ stdout: string }>,
+): Promise<string | null> {
+  try {
+    const { stdout } = await runCommand('journalctl', ['-u', 'ollama', '-n', '1000', '--no-pager', '--output=cat']);
+    return stdout;
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err?.code === 'ENOENT') {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export function getForceKillCommand(
+  pid: number,
+  platform: NodeJS.Platform = process.platform,
+): { file: string; args: string[] } {
+  const normalizedPid = Math.max(0, Math.trunc(pid));
+  if (platform === 'win32') {
+    return { file: 'taskkill', args: ['/F', '/PID', String(normalizedPid)] };
+  }
+  return { file: 'kill', args: ['-9', String(normalizedPid)] };
+}
 
 /**
  * Returns available system RAM in GB minus a fixed overhead for the OS and
@@ -167,6 +194,36 @@ function createThemeIcon(id: string): ThemeIcon {
   // but VS Code runtime supports codicon IDs for TreeItem ThemeIcon values.
   const ThemeIconCtor = ThemeIcon as unknown as { new (iconId: string): ThemeIcon };
   return new ThemeIconCtor(id);
+}
+
+function getNumberField(record: unknown, key: string): number | undefined {
+  if (!record || typeof record !== 'object') {
+    return undefined;
+  }
+  if (!Object.hasOwn(record, key)) {
+    return undefined;
+  }
+  const value = (record as Record<string, unknown>)[key];
+  return typeof value === 'number' ? value : undefined;
+}
+
+function getStringField(record: unknown, key: string): string | undefined {
+  if (!record || typeof record !== 'object') {
+    return undefined;
+  }
+  if (!Object.hasOwn(record, key)) {
+    return undefined;
+  }
+  const value = (record as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function updateItemTooltip(item: ModelTreeItem, tooltip: string, emitter: EventEmitter<ModelTreeItem | null>): void {
+  if (typeof item.tooltip === 'string' && item.tooltip === tooltip) {
+    return;
+  }
+  item.tooltip = tooltip;
+  emitter.fire(item);
 }
 
 /**
@@ -762,15 +819,15 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
 
       const runningMap = new Map<string, RunningProcessInfo>();
       for (const model of psResponse.models) {
-        const modelRecord = model as unknown as Record<string, unknown>;
         const durationMs = model.expires_at
           ? Math.max(0, new Date(model.expires_at).getTime() - Date.now())
           : undefined;
-        const id = typeof modelRecord.digest === 'string' ? modelRecord.digest.slice(0, 12) : undefined;
+        const digest = getStringField(model, 'digest');
+        const id = digest ? digest.slice(0, 12) : undefined;
 
         let processor: string | undefined;
-        const sizeVram = typeof modelRecord.size_vram === 'number' ? modelRecord.size_vram : undefined;
-        const size = typeof modelRecord.size === 'number' ? modelRecord.size : undefined;
+        const sizeVram = getNumberField(model, 'size_vram');
+        const size = getNumberField(model, 'size');
         if (typeof sizeVram === 'number' && typeof size === 'number' && size > 0) {
           const gpuPct = Math.min(100, Math.max(0, Math.round((sizeVram / size) * 100)));
           processor = gpuPct > 0 ? `${gpuPct}% GPU` : 'CPU';
@@ -800,8 +857,8 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
           // Fetch tooltip description asynchronously
           void getCachedModelPagePreview(model.name).then(
             preview => {
-              item.tooltip = buildLocalModelTooltip(model.name, model.size, running, preview.description);
-              this.treeChangeEmitter.fire(item);
+              const nextTooltip = buildLocalModelTooltip(model.name, model.size, running, preview.description);
+              updateItemTooltip(item, nextTooltip, this.treeChangeEmitter);
             },
             () => {
               // Keep initial tooltip on error
@@ -831,12 +888,18 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
             // Update tooltip with capabilities
             void getCachedModelPagePreview(model.name).then(
               preview => {
-                item.tooltip = buildLocalModelTooltip(model.name, model.size, running, preview.description, cachedCaps);
-                this.treeChangeEmitter.fire(item);
+                const nextTooltip = buildLocalModelTooltip(
+                  model.name,
+                  model.size,
+                  running,
+                  preview.description,
+                  cachedCaps,
+                );
+                updateItemTooltip(item, nextTooltip, this.treeChangeEmitter);
               },
               () => {
-                item.tooltip = buildLocalModelTooltip(model.name, model.size, running, undefined, cachedCaps);
-                this.treeChangeEmitter.fire(item);
+                const nextTooltip = buildLocalModelTooltip(model.name, model.size, running, undefined, cachedCaps);
+                updateItemTooltip(item, nextTooltip, this.treeChangeEmitter);
               },
             );
           } else if (!this.localModelCapabilitiesInFlight.has(model.name)) {
@@ -850,12 +913,18 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
                 // Update tooltip with capabilities
                 void getCachedModelPagePreview(model.name).then(
                   preview => {
-                    item.tooltip = buildLocalModelTooltip(model.name, model.size, running, preview.description, caps);
-                    this.treeChangeEmitter.fire(item);
+                    const nextTooltip = buildLocalModelTooltip(
+                      model.name,
+                      model.size,
+                      running,
+                      preview.description,
+                      caps,
+                    );
+                    updateItemTooltip(item, nextTooltip, this.treeChangeEmitter);
                   },
                   () => {
-                    item.tooltip = buildLocalModelTooltip(model.name, model.size, running, undefined, caps);
-                    this.treeChangeEmitter.fire(item);
+                    const nextTooltip = buildLocalModelTooltip(model.name, model.size, running, undefined, caps);
+                    updateItemTooltip(item, nextTooltip, this.treeChangeEmitter);
                   },
                 );
               })
@@ -1080,9 +1149,13 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
         const logPath = join(process.env['LOCALAPPDATA'] ?? '', 'Ollama', 'server.log');
         logContent = await readFile(logPath, 'utf-8');
       } else if (platform === 'linux') {
-        // On Linux, use journalctl to get recent logs
-        const { stdout } = await execAsync('journalctl -u ollama -n 1000 --no-pager --output=cat');
-        logContent = stdout;
+        // On Linux, use journalctl to get recent logs when available.
+        const logs = await readLinuxJournalctlLogs();
+        if (logs === null) {
+          this.logChannel?.warn('[client] journalctl not found in PATH; cannot extract model PID from logs');
+          return null;
+        }
+        logContent = logs;
       } else {
         this.logChannel?.warn(`[client] PID extraction not supported on platform: ${platform}`);
         return null;
@@ -1117,17 +1190,10 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
    */
   private async forceKillProcess(pid: number): Promise<boolean> {
     try {
-      const platform = process.platform;
-      let command: string;
-
-      if (platform === 'win32') {
-        command = `taskkill /F /PID ${pid}`;
-      } else {
-        command = `kill -9 ${pid}`;
-      }
+      const { file, args } = getForceKillCommand(pid);
 
       this.logChannel?.info(`[client] force-killing process ${pid}`);
-      await execAsync(command);
+      await execFileAsync(file, args);
       return true;
     } catch (error) {
       this.logChannel?.exception(`[client] failed to kill process ${pid}`, error);
@@ -1631,8 +1697,7 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
           if (isRecommended) tooltipLines.push('👍 Recommended for your hardware');
           if (preview.description) tooltipLines.push(preview.description);
 
-          item.tooltip = tooltipLines.join('\n');
-          this.treeChangeEmitter.fire(item);
+          updateItemTooltip(item, tooltipLines.join('\n'), this.treeChangeEmitter);
         },
         () => {
           // Keep initial tooltip.
@@ -1836,8 +1901,7 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
             item.description = badges.join(' ');
           }
 
-          item.tooltip = tooltipLines.join('\n');
-          this.treeChangeEmitter.fire(item);
+          updateItemTooltip(item, tooltipLines.join('\n'), this.treeChangeEmitter);
         },
         () => {
           item.tooltip = `Library model: ${name}`;
@@ -2393,13 +2457,16 @@ export class CloudModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
         if (capLine) {
           tooltipLines.push(capLine);
         }
-        item.tooltip = tooltipLines.join('\n');
+        const baseTooltip = tooltipLines.join('\n');
+        if (typeof item.tooltip !== 'string' || item.tooltip !== baseTooltip) {
+          item.tooltip = baseTooltip;
+        }
 
         void getCachedModelPagePreview(fullName).then(
           preview => {
             if (preview.description) {
-              item.tooltip = `${item.tooltip}\n${preview.description}`;
-              this.treeChangeEmitter.fire(item);
+              const nextTooltip = `${baseTooltip}\n${preview.description}`;
+              updateItemTooltip(item, nextTooltip, this.treeChangeEmitter);
             }
           },
           () => {

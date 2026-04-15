@@ -2,8 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { promises as fsPromises } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { URL } from 'node:url';
-import type { ChatResponse, Message, Ollama, Options, Tool } from 'ollama';
+import type { ChatResponse, Message, Ollama, Tool } from 'ollama';
 import * as vscode from 'vscode';
 import { getCloudOllamaClient, getOllamaAuthToken, getOllamaClient, getOllamaHost, testConnection } from './client.js';
 import { OllamaInlineCompletionProvider } from './completions.js';
@@ -11,12 +10,20 @@ import { BASE_SYSTEM_PROMPT, detectsRepetition, resolveContextLimit, truncateMes
 import { createDiagnosticsLogger, getConfiguredLogLevel, type DiagnosticsLogger } from './diagnostics.js';
 import { reportError } from './errorHandler.js';
 import {
+  handleConfigurationChange,
+  handleConnectionTestFailure,
+  isSelectedAction,
+  redactDisplayHost,
+} from './extensionHelpers.js';
+import {
   createXmlStreamFilter,
   dedupeXmlContextBlocksByTag,
   sanitizeNonStreamingModelOutput,
   splitLeadingXmlContextBlocks,
 } from './formatting';
+import { formatBytes } from './formatUtils.js';
 import { registerModelfileManager } from './modelfiles.js';
+import { nativeSdkChatOnce, nativeSdkStreamChat, openAiCompatChatOnce, openAiCompatStreamChat } from './chatUtils.js';
 import {
   getModelOptionsForModel,
   loadModelSettings,
@@ -24,10 +31,8 @@ import {
   type ModelOptionOverrides,
   type ModelSettingsStore,
 } from './modelSettings.js';
-import { chatCompletionsOnce, initiateChatCompletionsStream } from './openaiCompat.js';
-import { ollamaMessagesToOpenAICompat, ollamaToolsToOpenAICompat } from './openaiCompatMapping.js';
 import { isThinkingModelId, OllamaChatModelProvider } from './provider.js';
-import { affectsSetting, getSetting, migrateLegacySettings, SETTINGS_NAMESPACE } from './settings.js';
+import { getSetting, migrateLegacySettings } from './settings.js';
 import { createModelSettingsViewProvider, MODEL_SETTINGS_VIEW_ID } from './settingsWebview.js';
 import { registerSidebar, type SidebarProfilingSnapshot } from './sidebar.js';
 import { registerStatusBarHeartbeat } from './statusBar.js';
@@ -50,260 +55,30 @@ export function toRuntimeModelId(modelId: string): string {
   return modelId.startsWith(PROVIDER_MODEL_ID_PREFIX) ? modelId.slice(PROVIDER_MODEL_ID_PREFIX.length) : modelId;
 }
 
-export function mapOpenAiToolCallsToOllamaLike(toolCalls: unknown):
-  | Array<{
-      id?: string;
-      function?: {
-        name?: string;
-        arguments?: Record<string, unknown>;
-      };
-    }>
-  | undefined {
-  if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
-    return undefined;
-  }
+export { mapOpenAiToolCallsToOllamaLike } from './chatUtils.js';
+export { formatBytes } from './formatUtils.js';
+export {
+  getOllamaServerLogPath,
+  handleConfigurationChange,
+  handleConnectionTestFailure,
+  isLocalHost,
+  isSelectedAction,
+} from './extensionHelpers.js';
 
-  const mapped: Array<{
-    id?: string;
-    function?: {
-      name?: string;
-      arguments?: Record<string, unknown>;
-    };
-  }> = [];
+export function getWindowsLogTailPowerShellArgs(
+  localAppData: string | undefined = process.env['LOCALAPPDATA'],
+): string[] {
+  const logPath = localAppData ? join(localAppData, 'Ollama', 'server.log') : '$env:LOCALAPPDATA\\Ollama\\server.log';
+  const escapedLogPath = logPath.replace(/'/g, "''");
+  const script =
+    `$p='${escapedLogPath}'; ` +
+    'if (Test-Path -LiteralPath $p) { Get-Content -LiteralPath $p -Tail 200 -Wait } ' +
+    'else { Write-Error ("Missing log file: " + $p) }';
 
-  for (const call of toolCalls) {
-    if (!call || typeof call !== 'object') {
-      continue;
-    }
-
-    const typed = call as {
-      id?: unknown;
-      function?: {
-        name?: unknown;
-        arguments?: unknown;
-      };
-    };
-
-    let parsedArgs: Record<string, unknown> = {};
-    if (typeof typed.function?.arguments === 'string' && typed.function.arguments.trim()) {
-      try {
-        const parsed = JSON.parse(typed.function.arguments);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          parsedArgs = parsed as Record<string, unknown>;
-        }
-      } catch {
-        parsedArgs = {};
-      }
-    }
-
-    mapped.push({
-      id: typeof typed.id === 'string' ? typed.id : undefined,
-      function: {
-        name: typeof typed.function?.name === 'string' ? typed.function.name : undefined,
-        arguments: parsedArgs,
-      },
-    });
-  }
-
-  return mapped;
-}
-
-async function openAiCompatStreamChat(params: {
-  modelId: string;
-  messages: Message[];
-  tools?: Tool[];
-  shouldThink: boolean;
-  effectiveClient: Ollama;
-  extensionContext?: vscode.ExtensionContext;
-  signal?: AbortSignal;
-  modelOptions?: ModelOptionOverrides;
-}): Promise<AsyncIterable<ChatResponse>> {
-  const { temperature, top_p, num_predict, top_k, num_ctx, think_budget } = params.modelOptions ?? {};
-  try {
-    const baseUrl = getOllamaHost();
-    const authToken = params.extensionContext ? await getOllamaAuthToken(params.extensionContext) : undefined;
-
-    // Use initiateChatCompletionsStream (eager fetch) so that any connection
-    // or HTTP error is thrown here, allowing the catch below to fall back to
-    // effectiveClient.chat() rather than surfacing during generator iteration.
-    const stream = await initiateChatCompletionsStream({
-      baseUrl,
-      authToken,
-      signal: params.signal,
-      request: {
-        model: params.modelId,
-        messages: ollamaMessagesToOpenAICompat(params.messages),
-        tools: ollamaToolsToOpenAICompat(params.tools),
-        ...(params.shouldThink ? { think: true } : {}),
-        ...(temperature !== undefined ? { temperature } : {}),
-        ...(top_p !== undefined ? { top_p } : {}),
-        ...(num_predict !== undefined ? { max_tokens: num_predict } : {}),
-        ...(top_k !== undefined ? { top_k } : {}),
-        ...(num_ctx !== undefined ? { num_ctx } : {}),
-        ...(think_budget !== undefined ? { think_budget } : {}),
-      },
-    });
-
-    return (async function* (): AsyncGenerator<ChatResponse> {
-      for await (const chunk of stream) {
-        const choice = chunk.choices?.[0];
-        const delta = choice?.delta;
-        const content = typeof delta?.content === 'string' ? delta.content : '';
-        const thinking = typeof delta?.reasoning === 'string' ? delta.reasoning : undefined;
-        const mappedToolCalls = mapOpenAiToolCallsToOllamaLike(delta?.tool_calls);
-
-        yield {
-          message: {
-            role: 'assistant',
-            content,
-            ...(thinking ? { thinking } : {}),
-            ...(mappedToolCalls ? { tool_calls: mappedToolCalls } : {}),
-          },
-          done: choice?.finish_reason != null,
-        } as ChatResponse;
-      }
-    })();
-  } catch {
-    const sdkOptions = params.modelOptions ? buildSdkOptions(params.modelOptions) : undefined;
-    return params.effectiveClient.chat({
-      model: params.modelId,
-      messages: params.messages,
-      stream: true,
-      ...(params.tools ? { tools: params.tools } : {}),
-      ...(params.shouldThink ? { think: true } : {}),
-      ...(sdkOptions ? { options: sdkOptions } : {}),
-    });
-  }
-}
-
-async function openAiCompatChatOnce(params: {
-  modelId: string;
-  messages: Message[];
-  tools?: Tool[];
-  shouldThink: boolean;
-  effectiveClient: Ollama;
-  extensionContext?: vscode.ExtensionContext;
-  signal?: AbortSignal;
-  modelOptions?: ModelOptionOverrides;
-}): Promise<ChatResponse> {
-  const { temperature, top_p, num_predict, top_k, num_ctx, think_budget } = params.modelOptions ?? {};
-  try {
-    const baseUrl = getOllamaHost();
-    const authToken = params.extensionContext ? await getOllamaAuthToken(params.extensionContext) : undefined;
-
-    const response = await chatCompletionsOnce({
-      baseUrl,
-      authToken,
-      signal: params.signal,
-      request: {
-        model: params.modelId,
-        messages: ollamaMessagesToOpenAICompat(params.messages),
-        tools: ollamaToolsToOpenAICompat(params.tools),
-        ...(params.shouldThink ? { think: true } : {}),
-        ...(temperature !== undefined ? { temperature } : {}),
-        ...(top_p !== undefined ? { top_p } : {}),
-        ...(num_predict !== undefined ? { max_tokens: num_predict } : {}),
-        ...(top_k !== undefined ? { top_k } : {}),
-        ...(num_ctx !== undefined ? { num_ctx } : {}),
-        ...(think_budget !== undefined ? { think_budget } : {}),
-      },
-    });
-
-    const choice = response.choices?.[0];
-    const content = typeof choice?.message?.content === 'string' ? choice.message.content : '';
-    const thinking = typeof choice?.message?.reasoning === 'string' ? choice.message.reasoning : undefined;
-    const mappedToolCalls = mapOpenAiToolCallsToOllamaLike(choice?.message?.tool_calls);
-
-    return {
-      message: {
-        role: 'assistant',
-        content,
-        ...(thinking ? { thinking } : {}),
-        ...(mappedToolCalls ? { tool_calls: mappedToolCalls } : {}),
-      },
-      done: true,
-    } as ChatResponse;
-  } catch {
-    const sdkOptions = params.modelOptions ? buildSdkOptions(params.modelOptions) : undefined;
-    return (await params.effectiveClient.chat({
-      model: params.modelId,
-      messages: params.messages,
-      stream: false,
-      ...(params.tools ? { tools: params.tools } : {}),
-      ...(params.shouldThink ? { think: true } : {}),
-      ...(sdkOptions ? { options: sdkOptions } : {}),
-    })) as ChatResponse;
-  }
-}
-
-async function nativeSdkStreamChat(params: {
-  modelId: string;
-  messages: Message[];
-  tools?: Tool[];
-  shouldThink: boolean;
-  effectiveClient: Ollama;
-  modelOptions?: ModelOptionOverrides;
-}): Promise<AsyncIterable<ChatResponse>> {
-  const sdkOptions = params.modelOptions ? buildSdkOptions(params.modelOptions) : undefined;
-  return params.effectiveClient.chat({
-    model: params.modelId,
-    messages: params.messages,
-    stream: true,
-    ...(params.tools ? { tools: params.tools } : {}),
-    ...(params.shouldThink ? { think: true } : {}),
-    ...(sdkOptions ? { options: sdkOptions } : {}),
-  });
-}
-
-async function nativeSdkChatOnce(params: {
-  modelId: string;
-  messages: Message[];
-  tools?: Tool[];
-  shouldThink: boolean;
-  effectiveClient: Ollama;
-  modelOptions?: ModelOptionOverrides;
-}): Promise<ChatResponse> {
-  const sdkOptions = params.modelOptions ? buildSdkOptions(params.modelOptions) : undefined;
-  return (await params.effectiveClient.chat({
-    model: params.modelId,
-    messages: params.messages,
-    stream: false,
-    ...(params.tools ? { tools: params.tools } : {}),
-    ...(params.shouldThink ? { think: true } : {}),
-    ...(sdkOptions ? { options: sdkOptions } : {}),
-  })) as ChatResponse;
+  return ['-NoProfile', '-Command', script];
 }
 
 // normalizeToolParameters/isToolsNotSupportedError moved to src/toolUtils.ts
-
-/**
- * Build an Ollama SDK options object from per-model overrides.
- * Returns undefined when no overrides are set so callers can omit the field entirely.
- */
-function buildSdkOptions(overrides: ModelOptionOverrides): Partial<Options> | undefined {
-  const { temperature, top_p, top_k, num_ctx, num_predict, think_budget } = overrides;
-  const opts: Record<string, number> = {};
-  if (temperature !== undefined) opts['temperature'] = temperature;
-  if (top_p !== undefined) opts['top_p'] = top_p;
-  if (top_k !== undefined) opts['top_k'] = top_k;
-  if (num_ctx !== undefined) opts['num_ctx'] = num_ctx;
-  if (num_predict !== undefined) opts['num_predict'] = num_predict;
-  // think_budget is not yet in the Ollama SDK's Options type but is forwarded as-is
-  if (think_budget !== undefined) opts['think_budget'] = think_budget;
-  return Object.keys(opts).length > 0 ? (opts as Partial<Options>) : undefined;
-}
-
-export function isSelectedAction(selection: unknown, actionLabel: string): boolean {
-  if (typeof selection === 'string') {
-    return selection === actionLabel;
-  }
-
-  if (selection && typeof selection === 'object' && 'title' in selection) {
-    return (selection as { title?: unknown }).title === actionLabel;
-  }
-
-  return false;
-}
 
 async function removeBuiltInOllamaFromChatLanguageModels(
   context: Pick<vscode.ExtensionContext, 'globalStorageUri'>,
@@ -348,61 +123,46 @@ async function removeBuiltInOllamaFromChatLanguageModels(
     }
   }
 
+  const MAX_WRITE_RETRIES = 3;
   let changed = false;
+
   for (const modelsPath of candidatePaths) {
-    try {
-      const raw = await fsPromises.readFile(modelsPath, 'utf8');
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) {
-        continue;
+    for (let attempt = 0; attempt < MAX_WRITE_RETRIES; attempt++) {
+      try {
+        const raw = await fsPromises.readFile(modelsPath, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+          break;
+        }
+
+        const filtered = parsed.filter(
+          item => !(item && typeof item === 'object' && (item as Record<string, unknown>).vendor === 'ollama'),
+        );
+
+        if (filtered.length === parsed.length) {
+          break;
+        }
+
+        // Compare-and-retry: ensure file content did not change between read and write.
+        const latestRaw = await fsPromises.readFile(modelsPath, 'utf8');
+        if (latestRaw !== raw) {
+          if (attempt < MAX_WRITE_RETRIES - 1) {
+            continue;
+          }
+          break;
+        }
+
+        await fsPromises.writeFile(modelsPath, `${JSON.stringify(filtered, null, 2)}\n`, 'utf8');
+        changed = true;
+        break;
+      } catch {
+        // file missing/unreadable/unwritable for this candidate, continue trying others
+        break;
       }
-
-      const filtered = parsed.filter(
-        item => !(item && typeof item === 'object' && (item as Record<string, unknown>).vendor === 'ollama'),
-      );
-
-      if (filtered.length === parsed.length) {
-        continue;
-      }
-
-      await fsPromises.writeFile(modelsPath, `${JSON.stringify(filtered, null, 2)}\n`, 'utf8');
-      changed = true;
-    } catch {
-      // file missing/unreadable/unwritable for this candidate, continue trying others
     }
   }
 
   return changed;
-}
-
-/**
- * Handle configuration changes for log level and auto-start log streaming
- */
-export function handleConfigurationChange(
-  event: vscode.ConfigurationChangeEvent,
-  diagnostics: DiagnosticsLogger,
-  onLogLevelChange?: () => void,
-  onAutoStartChange?: (enabled: boolean) => void,
-): void {
-  if (affectsSetting(event, 'diagnostics.logLevel')) {
-    diagnostics.info(`[client] Diagnostics log level changed to: ${getConfiguredLogLevel()}`);
-    onLogLevelChange?.();
-  }
-
-  if (!affectsSetting(event, 'streamLogs')) {
-    return;
-  }
-
-  const enabled = getSetting<boolean>('streamLogs', true);
-  diagnostics.info(`[client] Auto-start log streaming setting changed: ${enabled ? 'enabled' : 'disabled'}`);
-  onAutoStartChange?.(enabled);
-}
-
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
-  return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
 }
 
 function logPerformanceSnapshot(
@@ -433,81 +193,6 @@ function logPerformanceSnapshot(
 
   diagnostics.info(`[client] ${JSON.stringify(payload)}`);
 }
-export function isLocalHost(host: string): boolean {
-  try {
-    const { hostname } = new URL(host);
-    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
-  } catch {
-    return false;
-  }
-}
-
-export async function handleConnectionTestFailure(
-  host: string,
-  windowApi?: Pick<typeof vscode.window, 'showErrorMessage'> &
-    Partial<Pick<typeof vscode.window, 'showInformationMessage' | 'showWarningMessage'>>,
-  commandsApi?: Pick<typeof vscode.commands, 'executeCommand'>,
-  logOutputChannel?: { show: () => void },
-): Promise<void> {
-  const window = windowApi || vscode.window;
-  const commands = commandsApi || vscode.commands;
-
-  const selection = await window.showErrorMessage(
-    `Cannot connect to Ollama server at ${host}. Please check your ${SETTINGS_NAMESPACE}.host / ollama.host settings and authentication token.`,
-    'Open Settings',
-    'Open Logs',
-  );
-  if (selection === 'Open Settings') {
-    await commands.executeCommand('workbench.action.openSettings', SETTINGS_NAMESPACE);
-    return;
-  }
-
-  if (selection === 'Open Logs') {
-    if (!isLocalHost(host)) {
-      // Remote connection — local Ollama log files won't exist here.
-      // Show the extension output channel (which has the connection error) and
-      // tell the user where to find the remote server logs.
-      logOutputChannel?.show();
-      void (window.showInformationMessage ?? vscode.window.showInformationMessage)(
-        `This is a remote Ollama connection. Check the Ollama server logs on the remote machine at ${host}. Extension connection details are shown in the Opilot output channel.`,
-      );
-      return;
-    }
-
-    // Local connection — attempt to open the platform-specific Ollama log file.
-    const logsPath = getOllamaServerLogPath();
-    if (logsPath) {
-      try {
-        const document = await vscode.workspace.openTextDocument(vscode.Uri.file(logsPath));
-        await vscode.window.showTextDocument(document, { preview: false });
-        return;
-      } catch {
-        void (window.showWarningMessage ?? vscode.window.showWarningMessage)(
-          `Could not open Ollama logs at ${logsPath}.`,
-        );
-        return;
-      }
-    }
-    void (window.showWarningMessage ?? vscode.window.showWarningMessage)(
-      'Ollama logs are not available on this platform via file; try journalctl or check Ollama documentation.',
-    );
-  }
-}
-
-export function getOllamaServerLogPath(): string | null {
-  const platform = process.platform;
-  if (platform === 'darwin') {
-    return join(homedir(), '.ollama', 'logs', 'server.log');
-  }
-  if (platform === 'win32') {
-    const localApp = process.env.LOCALAPPDATA;
-    if (localApp) return join(localApp, 'Ollama', 'server.log');
-    return null;
-  }
-  // On Linux we prefer journalctl; no single log file available
-  return null;
-}
-
 /**
  * Set up chat participant with icon and register it
  */
@@ -664,9 +349,23 @@ export async function handleChatRequest(
     const cloudModelTag = modelId.split(':')[1] ?? '';
     const isCloudModel = cloudModelTag === 'cloud' || cloudModelTag.endsWith('-cloud');
     const effectiveClient = isCloudModel && extensionContext ? await getCloudOllamaClient(extensionContext) : client;
+    const baseUrl = isCloudModel ? getOllamaHost() : undefined;
+    const authToken = isCloudModel && extensionContext ? await getOllamaAuthToken(extensionContext) : undefined;
+
+    const logOpenAiCompatFallback = (mode: 'stream' | 'once', failedModelId: string, error: unknown) => {
+      const reason = error instanceof Error ? error.message : String(error);
+      outputChannel?.warn(
+        `[client] OpenAI-compatible ${mode} call failed for ${failedModelId}; falling back to native SDK: ${reason}`,
+      );
+    };
 
     // Resolve per-model generation overrides (temperature, top_p, top_k, num_ctx, num_predict, think, think_budget).
     const modelOptions = modelSettings ? getModelOptionsForModel(modelSettings, modelId) : {};
+
+    // Timeout policy: no hard global request timeout is enforced here.
+    // Long generations are terminated via cooperative cancellation
+    // (`token.isCancellationRequested`) so streaming responses are not cut off
+    // unpredictably for slow but healthy models.
 
     try {
       // Convert VS Code messages to the plain Ollama format expected by the client.
@@ -679,7 +378,14 @@ export async function handleChatRequest(
       // This keeps IDE-injected context separate from the conversational user turn.
       const systemContextParts: string[] = [];
 
-      const ollamaMessages: (Message & { tool_call_id?: string })[] = messages.map(msg => {
+      type OllamaToolResultMessage = {
+        role: 'tool';
+        content: string;
+        tool_name: string;
+        tool_call_id?: string;
+      };
+
+      const ollamaMessages: Array<Message | OllamaToolResultMessage> = messages.map(msg => {
         const isUser = msg.role === vscode.LanguageModelChatMessageRole.User;
         let content = (Array.isArray(msg.content) ? msg.content : [])
           .filter((p): p is vscode.LanguageModelTextPart => p instanceof vscode.LanguageModelTextPart)
@@ -752,8 +458,10 @@ export async function handleChatRequest(
                   tools: ollamaTools,
                   shouldThink: shouldThinkInToolLoop,
                   effectiveClient,
-                  extensionContext,
+                  baseUrl: baseUrl!,
+                  authToken,
                   modelOptions,
+                  onOpenAiCompatFallback: logOpenAiCompatFallback,
                 })
               : nativeSdkChatOnce({
                   modelId,
@@ -807,8 +515,10 @@ export async function handleChatRequest(
                   },
                   token,
                 );
-              } catch {
-                /* ignore — task_complete failure should not block response */
+              } catch (taskCompleteError) {
+                const message =
+                  taskCompleteError instanceof Error ? taskCompleteError.message : String(taskCompleteError);
+                outputChannel?.warn(`[client] task_complete invocation failed (native path): ${message}`);
               }
               break;
             }
@@ -832,7 +542,7 @@ export async function handleChatRequest(
               content: resultText,
               tool_name: toolName,
               tool_call_id: (toolCall as { id?: string }).id,
-            } as never);
+            });
           }
 
           // task_complete signals the agent is done — display any final content and exit.
@@ -869,8 +579,10 @@ export async function handleChatRequest(
                 messages: xmlConversation,
                 shouldThink: false,
                 effectiveClient,
-                extensionContext,
+                baseUrl: baseUrl!,
+                authToken,
                 modelOptions,
+                onOpenAiCompatFallback: logOpenAiCompatFallback,
               })
             : nativeSdkChatOnce({
                 modelId,
@@ -952,8 +664,10 @@ export async function handleChatRequest(
               messages: ollamaMessages as Message[],
               shouldThink: think,
               effectiveClient,
-              extensionContext,
+              baseUrl: baseUrl!,
+              authToken,
               modelOptions,
+              onOpenAiCompatFallback: logOpenAiCompatFallback,
             })
         : (think: boolean) =>
             nativeSdkStreamChat({
@@ -1090,8 +804,10 @@ export async function handleChatRequest(
               messages: ollamaMessages as Message[],
               shouldThink,
               effectiveClient,
-              extensionContext,
+              baseUrl: baseUrl!,
+              authToken,
               modelOptions,
+              onOpenAiCompatFallback: logOpenAiCompatFallback,
             })
           : nativeSdkChatOnce({
               modelId,
@@ -1191,8 +907,9 @@ export async function handleChatRequest(
               { input: tc.input as Record<string, unknown>, toolInvocationToken: request.toolInvocationToken },
               token,
             );
-          } catch {
-            /* ignore */
+          } catch (taskCompleteError) {
+            const message = taskCompleteError instanceof Error ? taskCompleteError.message : String(taskCompleteError);
+            outputChannel?.warn(`[client] task_complete invocation failed (vscode-lm path): ${message}`);
           }
         }
         break;
@@ -1279,10 +996,8 @@ export async function activate(context: vscode.ExtensionContext) {
         stdio: 'pipe',
       });
     } else if (platform === 'win32') {
-      const script =
-        '$p=Join-Path $env:LOCALAPPDATA \'Ollama\\server.log\'; if (Test-Path $p) { Get-Content -Path $p -Tail 200 -Wait } else { Write-Error "Missing log file: $p" }';
       output.info('[server] starting log stream from %LOCALAPPDATA%\\Ollama\\server.log');
-      logTailProcess = spawn('powershell', ['-NoProfile', '-Command', script], { stdio: 'pipe' });
+      logTailProcess = spawn('powershell', getWindowsLogTailPowerShellArgs(), { stdio: 'pipe' });
     } else {
       output.warn(`[server] log streaming not supported on platform: ${platform}`);
       return;
@@ -1318,7 +1033,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const client = await getOllamaClient(context);
   const host = getSetting<string>('host', 'http://localhost:11434');
   const autoStartLogStreaming = getSetting<boolean>('streamLogs', true);
-  diagnostics.info(`[client] configured host: ${host}`);
+  diagnostics.info(`[client] configured host: ${redactDisplayHost(host)}`);
   diagnostics.info(`[client] auto-start log streaming: ${autoStartLogStreaming ? 'enabled' : 'disabled'}`);
   diagnostics.info(`[client] diagnostics log level: ${getConfiguredLogLevel()}`);
 
@@ -1486,7 +1201,9 @@ export async function activate(context: vscode.ExtensionContext) {
   // Test connection to Ollama server on startup (non-blocking)
   void (async () => {
     try {
-      const isConnected = await testConnection(client);
+      const isConnected = await testConnection(client, 5_000, details => {
+        diagnostics.warn(`[client] connection test failed (${details.kind}): ${details.message}`);
+      });
       diagnostics.info(`[client] Connection test result: ${isConnected ? 'connected' : 'not connected'}`);
       if (!isConnected) {
         await handleConnectionTestFailure(host, undefined, undefined, logOutputChannel);

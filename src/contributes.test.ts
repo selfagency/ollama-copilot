@@ -132,7 +132,7 @@ describe('package contributes integrity', () => {
     expect(prop?.default).toBe(true);
   });
 
-  it('marks legacy ollama.* settings as deprecated', () => {
+  it('does not declare legacy ollama.* settings in contributes.configuration', () => {
     const pkg = loadPackageJson();
     const properties = pkg.contributes?.configuration?.properties ?? {};
     const legacyKeys = [
@@ -148,13 +148,19 @@ describe('package contributes integrity', () => {
     ];
 
     for (const key of legacyKeys) {
-      expect(properties[key]?.deprecationMessage).toContain('Deprecated: use opilot.');
+      if (Object.hasOwn(properties, key)) {
+        expect(properties[key]).toBeUndefined();
+      }
     }
   });
 
   it('does not declare the ollama-model-preview webview view', () => {
     const pkg = loadPackageJson();
-    const explorerViews = pkg.contributes?.views?.['ollama-explorer'] ?? [];
+    const views = pkg.contributes?.views;
+    const explorerViews =
+      views && Object.hasOwn(views, 'ollama-explorer') && Array.isArray(views['ollama-explorer'])
+        ? views['ollama-explorer']
+        : [];
     const ids = explorerViews.map(view => view.id);
     expect(ids).not.toContain('ollama-model-preview');
   });

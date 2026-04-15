@@ -169,6 +169,16 @@ describe('getOllamaHost / getOllamaAuthToken / getOllamaAuthHeaders / getCloudOl
     expect(getHostWithDefault()).toBe('http://localhost:11434');
   });
 
+  it('redactUrlCredentials removes URL userinfo but preserves host details', async () => {
+    vi.doMock('vscode', () => makeVscodeMock());
+    vi.doMock('ollama', () => ({ Ollama: class {} }));
+
+    const { redactUrlCredentials } = await import('./client.js');
+    expect(redactUrlCredentials('https://alice:secret@example.com:11434/path')).toBe('https://example.com:11434/path');
+    expect(redactUrlCredentials('http://localhost:11434')).toBe('http://localhost:11434');
+    expect(redactUrlCredentials('not-a-url')).toBe('not-a-url');
+  });
+
   it('getOllamaAuthToken returns token from secret storage', async () => {
     vi.doMock('vscode', () => makeVscodeMock());
     vi.doMock('ollama', () => ({ Ollama: class {} }));
@@ -267,6 +277,63 @@ describe('testConnection', () => {
 
     expect(result).toBe(false);
   });
+
+  it('returns false when list() exceeds timeout', async () => {
+    vi.doMock('vscode', () => makeVscodeMock());
+    vi.doMock('ollama', () => ({ Ollama: class {} }));
+
+    const { testConnection } = await import('./client.js');
+    const client = { list: vi.fn().mockImplementation(() => new Promise(() => {})) } as any;
+
+    const result = await testConnection(client, 5);
+
+    expect(result).toBe(false);
+  });
+
+  it('reports timeout failure details via callback', async () => {
+    vi.doMock('vscode', () => makeVscodeMock());
+    vi.doMock('ollama', () => ({ Ollama: class {} }));
+
+    const { testConnection } = await import('./client.js');
+    const onFailure = vi.fn();
+    const client = { list: vi.fn().mockImplementation(() => new Promise(() => {})) } as any;
+
+    const result = await testConnection(client, 5, onFailure);
+
+    expect(result).toBe(false);
+    expect(onFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'timeout', message: expect.stringContaining('timed out') }),
+    );
+  });
+
+  it('returns false when list() is cancelled', async () => {
+    vi.doMock('vscode', () => makeVscodeMock());
+    vi.doMock('ollama', () => ({ Ollama: class {} }));
+
+    const { testConnection } = await import('./client.js');
+    const client = {
+      list: vi.fn().mockRejectedValue(Object.assign(new Error('aborted'), { name: 'AbortError' })),
+    } as any;
+
+    const result = await testConnection(client);
+
+    expect(result).toBe(false);
+  });
+
+  it('reports authentication failure details via callback', async () => {
+    vi.doMock('vscode', () => makeVscodeMock());
+    vi.doMock('ollama', () => ({ Ollama: class {} }));
+
+    const { testConnection } = await import('./client.js');
+    const onFailure = vi.fn();
+    const authError = Object.assign(new Error('Unauthorized'), { status: 401 });
+    const client = { list: vi.fn().mockRejectedValue(authError) } as any;
+
+    const result = await testConnection(client, 5_000, onFailure);
+
+    expect(result).toBe(false);
+    expect(onFailure).toHaveBeenCalledWith(expect.objectContaining({ kind: 'authentication' }));
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -346,7 +413,7 @@ describe('fetchModelCapabilities', () => {
 
     const caps = await fetchModelCapabilities(client, 'llama3.2:latest');
     expect(caps.maxInputTokens).toBe(8192);
-    expect(caps.maxOutputTokens).toBe(8192);
+    expect(caps.maxOutputTokens).toBe(4096);
   });
 
   it('reads context length from model_info plain object with family-specific key', async () => {

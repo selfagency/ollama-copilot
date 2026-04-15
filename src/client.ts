@@ -22,6 +22,24 @@ export async function getOllamaAuthHeaders(context: ExtensionContext): Promise<R
 }
 
 /**
+ * Redact username/password from URL-like host strings for safe display in logs and errors.
+ */
+export function redactUrlCredentials(urlOrHost: string): string {
+  try {
+    const parsed = new URL(urlOrHost);
+    if (!parsed.username && !parsed.password) {
+      return urlOrHost;
+    }
+
+    parsed.username = '';
+    parsed.password = '';
+    return parsed.toString();
+  } catch {
+    return urlOrHost;
+  }
+}
+
+/**
  * Get or create an Ollama client instance configured with the current settings.
  *
  * Security notes:
@@ -76,15 +94,71 @@ export interface ModelCapabilities {
   maxOutputTokens: number;
 }
 
+export type ConnectionFailureKind = 'timeout' | 'connection-refused' | 'authentication' | 'cancelled' | 'unknown';
+
+export interface ConnectionFailureDetails {
+  kind: ConnectionFailureKind;
+  message: string;
+  error: unknown;
+}
+
+function classifyConnectionFailure(error: unknown): ConnectionFailureDetails {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toLowerCase();
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error ? String((error as { code?: unknown }).code) : '';
+  const status =
+    typeof error === 'object' && error !== null && 'status' in error
+      ? Number((error as { status?: unknown }).status)
+      : undefined;
+  const name = error instanceof Error ? error.name : '';
+
+  if (code === 'ETIMEDOUT' || normalized.includes('timed out') || normalized.includes('timeout')) {
+    return { kind: 'timeout', message, error };
+  }
+
+  if (name === 'AbortError') {
+    return { kind: 'cancelled', message, error };
+  }
+
+  if (code === 'ECONNREFUSED' || normalized.includes('econnrefused') || normalized.includes('connection refused')) {
+    return { kind: 'connection-refused', message, error };
+  }
+
+  if (status === 401 || status === 403 || normalized.includes('unauthorized') || normalized.includes('forbidden')) {
+    return { kind: 'authentication', message, error };
+  }
+
+  return { kind: 'unknown', message, error };
+}
+
 /**
  * Test connection to Ollama server
  */
-export async function testConnection(client: Ollama): Promise<boolean> {
+export async function testConnection(
+  client: Ollama,
+  timeoutMs = 5_000,
+  onFailure?: (details: ConnectionFailureDetails) => void,
+): Promise<boolean> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   try {
-    await client.list();
+    await Promise.race([
+      client.list(),
+      new Promise((_, reject) => {
+        timeoutHandle = setTimeout(
+          () => reject(Object.assign(new Error('Connection timed out'), { code: 'ETIMEDOUT' })),
+          timeoutMs,
+        );
+      }),
+    ]);
     return true;
-  } catch {
+  } catch (error) {
+    onFailure?.(classifyConnectionFailure(error));
     return false;
+  } finally {
+    if (timeoutHandle !== undefined) {
+      clearTimeout(timeoutHandle);
+    }
   }
 }
 
@@ -148,7 +222,18 @@ export async function fetchModelCapabilities(client: Ollama, modelId: string): P
     }
 
     const maxInputTokens = contextLength;
-    const maxOutputTokens = contextLength;
+
+    // Ollama's output limit is num_predict (default varies by model, typically
+    // -1 for unlimited or a model-specific cap). Parse from parameters if set;
+    // otherwise use a conservative default that doesn't conflate with context length.
+    let maxOutputTokens = 4096;
+    if (typeof parameters === 'string') {
+      const predictMatch = /num_predict\s+(-?\d+)/m.exec(parameters);
+      if (predictMatch) {
+        const val = parseInt(predictMatch[1], 10);
+        maxOutputTokens = val > 0 ? val : contextLength;
+      }
+    }
 
     // Detect thinking support from capabilities array or template
     const capabilitiesArr = (modelInfo as unknown as Record<string, unknown>).capabilities;
