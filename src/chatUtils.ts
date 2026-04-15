@@ -88,6 +88,7 @@ export async function openAiCompatStreamChat(params: {
   authToken?: string;
   signal?: AbortSignal;
   modelOptions?: ModelOptionOverrides;
+  onOpenAiCompatFallback?: (mode: 'stream' | 'once', modelId: string, error: unknown) => void;
 }): Promise<AsyncIterable<ChatResponse>> {
   const { temperature, top_p, num_predict, top_k, num_ctx, think_budget } = params.modelOptions ?? {};
   try {
@@ -128,7 +129,8 @@ export async function openAiCompatStreamChat(params: {
         } as ChatResponse;
       }
     })();
-  } catch {
+  } catch (error) {
+    params.onOpenAiCompatFallback?.('stream', params.modelId, error);
     const sdkOptions = params.modelOptions ? buildSdkOptions(params.modelOptions) : undefined;
     return params.effectiveClient.chat({
       model: params.modelId,
@@ -151,6 +153,7 @@ export async function openAiCompatChatOnce(params: {
   authToken?: string;
   signal?: AbortSignal;
   modelOptions?: ModelOptionOverrides;
+  onOpenAiCompatFallback?: (mode: 'stream' | 'once', modelId: string, error: unknown) => void;
 }): Promise<ChatResponse> {
   const { temperature, top_p, num_predict, top_k, num_ctx, think_budget } = params.modelOptions ?? {};
   try {
@@ -186,7 +189,8 @@ export async function openAiCompatChatOnce(params: {
       },
       done: true,
     } as ChatResponse;
-  } catch {
+  } catch (error) {
+    params.onOpenAiCompatFallback?.('once', params.modelId, error);
     const sdkOptions = params.modelOptions ? buildSdkOptions(params.modelOptions) : undefined;
     return (await params.effectiveClient.chat({
       model: params.modelId,

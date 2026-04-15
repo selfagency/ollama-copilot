@@ -3186,11 +3186,11 @@ describe('handleChatRequest cloud model path (openAiCompatStreamChat)', () => {
     vi.resetModules();
   });
 
-  function makeStandardMocks() {
+  function makeStandardMocks(warnSpy: ReturnType<typeof vi.fn> = vi.fn()) {
     vi.doMock('./diagnostics.js', () => ({
       createDiagnosticsLogger: () => ({
         info: vi.fn(),
-        warn: vi.fn(),
+        warn: warnSpy,
         error: vi.fn(),
         debug: vi.fn(),
         exception: vi.fn(),
@@ -3312,12 +3312,14 @@ describe('handleChatRequest cloud model path (openAiCompatStreamChat)', () => {
       ollamaToolsToOpenAICompat: vi.fn(() => undefined),
     }));
 
-    makeStandardMocks();
+    const warnSpy = vi.fn();
+    makeStandardMocks(warnSpy);
 
     const ext = await import('./extension.js');
     const mockMarkdown = vi.fn();
     const stream = { markdown: mockMarkdown };
     const token = { isCancellationRequested: false };
+    const outputChannel = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), exception: vi.fn() };
     // Pass cloudClient as the 5th arg so it's used as effectiveClient when no extensionContext
     const mockClient = cloudClient;
 
@@ -3332,12 +3334,13 @@ describe('handleChatRequest cloud model path (openAiCompatStreamChat)', () => {
       stream as any,
       token as any,
       mockClient as any,
-      undefined,
+      outputChannel as any,
     );
 
     const allCalls = mockMarkdown.mock.calls.map((c: any[]) => c[0] as string);
     expect(allCalls.join('')).toContain('fallback response');
     expect(cloudClient.chat).toHaveBeenCalled();
+    expect(outputChannel.warn).toHaveBeenCalledWith(expect.stringContaining('OpenAI-compatible stream call failed'));
   });
 
   it('uses openAiCompatChatOnce for cloud model tool call round', async () => {

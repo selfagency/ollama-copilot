@@ -361,6 +361,13 @@ export async function handleChatRequest(
     const baseUrl = isCloudModel ? getOllamaHost() : undefined;
     const authToken = isCloudModel && extensionContext ? await getOllamaAuthToken(extensionContext) : undefined;
 
+    const logOpenAiCompatFallback = (mode: 'stream' | 'once', failedModelId: string, error: unknown) => {
+      const reason = error instanceof Error ? error.message : String(error);
+      outputChannel?.warn(
+        `[client] OpenAI-compatible ${mode} call failed for ${failedModelId}; falling back to native SDK: ${reason}`,
+      );
+    };
+
     // Resolve per-model generation overrides (temperature, top_p, top_k, num_ctx, num_predict, think, think_budget).
     const modelOptions = modelSettings ? getModelOptionsForModel(modelSettings, modelId) : {};
 
@@ -451,6 +458,7 @@ export async function handleChatRequest(
                   baseUrl: baseUrl!,
                   authToken,
                   modelOptions,
+                  onOpenAiCompatFallback: logOpenAiCompatFallback,
                 })
               : nativeSdkChatOnce({
                   modelId,
@@ -569,6 +577,7 @@ export async function handleChatRequest(
                 baseUrl: baseUrl!,
                 authToken,
                 modelOptions,
+                onOpenAiCompatFallback: logOpenAiCompatFallback,
               })
             : nativeSdkChatOnce({
                 modelId,
@@ -653,6 +662,7 @@ export async function handleChatRequest(
               baseUrl: baseUrl!,
               authToken,
               modelOptions,
+              onOpenAiCompatFallback: logOpenAiCompatFallback,
             })
         : (think: boolean) =>
             nativeSdkStreamChat({
@@ -792,6 +802,7 @@ export async function handleChatRequest(
               baseUrl: baseUrl!,
               authToken,
               modelOptions,
+              onOpenAiCompatFallback: logOpenAiCompatFallback,
             })
           : nativeSdkChatOnce({
               modelId,
