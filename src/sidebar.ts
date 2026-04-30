@@ -389,7 +389,7 @@ export function buildMemoryBreakdown(running: RunningProcessInfo, size?: number)
 }
 
 export function buildProcessorLine(processor: string): string | null {
-  const procMatch = processor.match(/(\d+)% GPU/);
+  const procMatch = processor.slice(0, 32).match(/^(\d{1,3})% GPU$/);
   if (procMatch) {
     const gpuPct = parseInt(procMatch[1], 10);
     const cpuPct = 100 - gpuPct;
