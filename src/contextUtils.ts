@@ -8,7 +8,10 @@
  * - detect repetition loops in streamed output buffers
  */
 
+import { OutputMode, Raw, renderPrompt, type ITokenizer } from '@vscode/prompt-tsx';
 import type { Message } from 'ollama';
+import { OllamaPrompt } from './prompts/OllamaPrompt.js';
+import type { ResolvedReference } from './prompts/OllamaPrompt.js';
 
 /**
  * Base system prompt injected into every @ollama and LM API request.
@@ -194,33 +197,92 @@ export function resolveContextLimit(modelReported: number, modelOptNumCtx?: numb
 }
 
 /**
- * Render a prompt using @vscode/prompt-tsx when available; otherwise fall back to
- * the synchronous `truncateMessages` approach. This function is async to allow
- * integration with renderers that may query tokenizers or perform async work.
+ * Render a prompt using @vscode/prompt-tsx for priority-based context pruning.
+ *
+ * Messages are decomposed into system content, conversation history, and the
+ * current user turn, passed through the OllamaPrompt TSX component, then
+ * converted back to Ollama Message objects. Falls back to the synchronous
+ * truncateMessages approach when the message list cannot be decomposed (e.g.,
+ * contains tool turns) or on any render error.
  */
 export async function renderOllamaPrompt(
   messages: Message[],
   maxInputTokens: number,
   tokenCountFn?: (text: string) => number,
+  references?: ReadonlyArray<ResolvedReference>,
 ): Promise<Message[]> {
-  // If prompt-tsx is available, prefer it for priority-based composition.
-  try {
-    // Dynamic import so we don't hard-depend on the package until opted-in.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const promptTsx = require('@vscode/prompt-tsx');
-    if (promptTsx && typeof promptTsx.renderPrompt === 'function') {
-      // The library's renderPrompt API is expected to return an ordered array
-      // of string chunks; adapt them back to Message objects. This is a best-effort
-      // bridge and kept defensive to avoid runtime crashes if the shape differs.
-      const rendered = await promptTsx.renderPrompt(messages, { budget: Math.max(0, maxInputTokens - OUTPUT_TOKEN_RESERVE) }, tokenCountFn);
-      if (Array.isArray(rendered)) {
-        return rendered.map((r: any) => ({ role: 'user', content: String(r) } as unknown as Message));
-      }
-    }
-  } catch {
-    // Ignore and fall back.
+  if (maxInputTokens <= 0 || messages.length === 0) return messages;
+
+  const countFn = tokenCountFn ?? ((text: string) => Math.ceil(text.length / CHARS_PER_TOKEN));
+
+  // Decompose the flat message list into structured parts.
+  const systemMsgs = messages.filter(m => m.role === 'system');
+  const nonSystem = messages.filter(m => m.role !== 'system');
+
+  // Require a final user turn and only user/assistant turns in history.
+  const lastMsg = nonSystem.at(-1);
+  const historyMsgs = nonSystem.slice(0, -1);
+  const hasToolTurns = historyMsgs.some(m => m.role !== 'user' && m.role !== 'assistant');
+  if (!lastMsg || hasToolTurns) {
+    return truncateMessages(messages, maxInputTokens);
   }
 
-  // Synchronous conservative fallback.
-  return truncateMessages(messages, maxInputTokens);
+  const systemContent = systemMsgs.map(m => (typeof m.content === 'string' ? m.content : '')).join('\n\n');
+  const history = historyMsgs
+    .filter(m => m.role === 'user' || m.role === 'assistant')
+    .map(m => ({
+      role: m.role as 'user' | 'assistant',
+      content: typeof m.content === 'string' ? m.content : '',
+    }));
+  const userContent = typeof lastMsg.content === 'string' ? lastMsg.content : '';
+
+  const tokenizer: ITokenizer<OutputMode.Raw> = {
+    mode: OutputMode.Raw,
+    tokenLength(part: Raw.ChatCompletionContentPart): number {
+      if (part.type === Raw.ChatCompletionContentPartKind.Text) {
+        return countFn((part as Raw.ChatCompletionContentPartText).text);
+      }
+      return 1;
+    },
+    countMessageTokens(message: Raw.ChatMessage): number {
+      let total = 4; // role overhead
+      for (const part of message.content) {
+        const len = this.tokenLength(part);
+        total += typeof len === 'number' ? len : 1;
+      }
+      return total;
+    },
+  };
+
+  try {
+    const endpoint = { modelMaxPromptTokens: maxInputTokens - OUTPUT_TOKEN_RESERVE };
+    const result = await renderPrompt(
+      OllamaPrompt,
+      { systemContent, history, userContent, references },
+      endpoint,
+      tokenizer,
+    );
+    return result.messages.map((m: Raw.ChatMessage) => ({
+      role: chatRoleToString(m.role),
+      content: m.content
+        .filter((p: Raw.ChatCompletionContentPart) => p.type === Raw.ChatCompletionContentPartKind.Text)
+        .map((p: Raw.ChatCompletionContentPart) => (p as Raw.ChatCompletionContentPartText).text)
+        .join(''),
+    }));
+  } catch {
+    return truncateMessages(messages, maxInputTokens);
+  }
+}
+
+function chatRoleToString(role: Raw.ChatRole): string {
+  switch (role) {
+    case Raw.ChatRole.System:
+      return 'system';
+    case Raw.ChatRole.User:
+      return 'user';
+    case Raw.ChatRole.Assistant:
+      return 'assistant';
+    case Raw.ChatRole.Tool:
+      return 'tool';
+  }
 }

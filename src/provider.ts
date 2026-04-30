@@ -24,7 +24,7 @@ import {
 } from 'vscode';
 import { getCloudOllamaClient, getOllamaAuthToken, getOllamaClient, getOllamaHost } from './client';
 import { nativeSdkChatOnce, nativeSdkStreamChat, openAiCompatChatOnce, openAiCompatStreamChat } from './chatUtils.js';
-import { BASE_SYSTEM_PROMPT, detectsRepetition, resolveContextLimit, truncateMessages, renderOllamaPrompt } from './contextUtils.js';
+import { BASE_SYSTEM_PROMPT, detectsRepetition, resolveContextLimit, renderOllamaPrompt } from './contextUtils.js';
 import type { DiagnosticsLogger } from './diagnostics.js';
 import { reportError } from './errorHandler.js';
 import {

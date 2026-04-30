@@ -6,7 +6,8 @@ import type { ChatResponse, Message, Ollama, Tool } from 'ollama';
 import * as vscode from 'vscode';
 import { getCloudOllamaClient, getOllamaAuthToken, getOllamaClient, getOllamaHost, testConnection } from './client.js';
 import { OllamaInlineCompletionProvider } from './completions.js';
-import { BASE_SYSTEM_PROMPT, detectsRepetition, resolveContextLimit, truncateMessages, renderOllamaPrompt } from './contextUtils.js';
+import { BASE_SYSTEM_PROMPT, detectsRepetition, resolveContextLimit, renderOllamaPrompt } from './contextUtils.js';
+import type { ResolvedReference } from './prompts/OllamaPrompt.js';
 import { createDiagnosticsLogger, getConfiguredLogLevel, type DiagnosticsLogger } from './diagnostics.js';
 import { reportError } from './errorHandler.js';
 import {
@@ -442,6 +443,36 @@ export async function handleChatRequest(
   await handleVsCodeLmRequest(request, messages, stream, token, outputChannel);
 }
 
+/**
+ * Resolve VS Code chat prompt references (dragged-in files/selections/strings) to plain text.
+ * References that cannot be read are silently skipped.
+ */
+async function resolvePromptReferences(
+  references: ReadonlyArray<vscode.ChatPromptReference>,
+): Promise<ResolvedReference[]> {
+  const resolved: ResolvedReference[] = [];
+  for (const ref of references) {
+    try {
+      const { value } = ref;
+      if (value instanceof vscode.Uri) {
+        const bytes = await vscode.workspace.fs.readFile(value);
+        resolved.push({ label: value.fsPath, content: Buffer.from(bytes).toString('utf-8') });
+      } else if (value instanceof vscode.Location) {
+        const doc = await vscode.workspace.openTextDocument(value.uri);
+        const text = doc.getText(value.range);
+        const start = value.range.start.line + 1;
+        const end = value.range.end.line + 1;
+        resolved.push({ label: `${value.uri.fsPath}:${start}-${end}`, content: text });
+      } else if (typeof value === 'string' && value.length > 0) {
+        resolved.push({ label: ref.id, content: value });
+      }
+    } catch {
+      // Skip unreadable references rather than failing the whole request.
+    }
+  }
+  return resolved;
+}
+
 async function handleDirectOllamaRequest(
   request: vscode.ChatRequest,
   messages: vscode.LanguageModelChatMessage[],
@@ -550,7 +581,8 @@ async function handleDirectOllamaRequest(
       getSetting<number>('maxContextTokens', 0),
     );
     if (maxInputTokens > 0) {
-      const truncated = await renderOllamaPrompt(ollamaMessages as Message[], maxInputTokens, text => Math.ceil(text.length / 4));
+      const refs = await resolvePromptReferences(request.references ?? []);
+      const truncated = await renderOllamaPrompt(ollamaMessages as Message[], maxInputTokens, text => Math.ceil(text.length / 4), refs);
       ollamaMessages.splice(0, ollamaMessages.length, ...truncated);
     }
 

@@ -16,7 +16,7 @@ function getIgnoreSslErrors(): boolean {
  * Only used when `opilot.ignoreSslErrors` is enabled by the user.
  */
 function createInsecureFetch(): typeof globalThis.fetch {
-  const agent = new Agent({ connect: { rejectUnauthorized: false } });
+  const agent = new Agent({ connect: { rejectUnauthorized: false } }); // nosemgrep: bypass-tls-verification
   return (input, init) =>
     undiciFetch(input as Parameters<typeof undiciFetch>[0], {
       ...(init as Parameters<typeof undiciFetch>[1]),
