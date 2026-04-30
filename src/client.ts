@@ -189,7 +189,7 @@ function parseContextLength(modelInfoData: unknown, parameters: unknown): number
 
   if (typeof parameters === 'string') {
     const match = /^num_ctx\s+(\d+)/m.exec(parameters);
-    if (match) return parseInt(match[1], 10);
+    if (match) return Number.parseInt(match[1], 10);
   }
   return 4096; // Conservative default
 }
@@ -198,7 +198,7 @@ function parseMaxOutputTokens(parameters: unknown, contextLength: number): numbe
   if (typeof parameters === 'string') {
     const match = /num_predict\s+(-?\d+)/m.exec(parameters);
     if (match) {
-      const val = parseInt(match[1], 10);
+      const val = Number.parseInt(match[1], 10);
       return val > 0 ? val : contextLength;
     }
   }

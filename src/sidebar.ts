@@ -576,7 +576,7 @@ function schedulePersistModelPreviewCache(): void {
       value: entry.value,
       expiresAt: entry.expiresAt,
     }));
-    modelPreviewCacheContext?.globalState.update(MODEL_PREVIEW_CACHE_STORAGE_KEY, { entries })?.catch(() => {});
+    modelPreviewCacheContext?.globalState.update(MODEL_PREVIEW_CACHE_STORAGE_KEY, { entries })?.then(undefined, () => {});
     modelPreviewCachePersistTimer = null;
   }, 250);
 }
@@ -717,7 +717,7 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
       serialized[modelName] = capabilities;
     }
 
-    this.context.globalState.update(LocalModelsProvider.LOCAL_CAPABILITIES_STORAGE_KEY, serialized).catch(() => {});
+    this.context.globalState.update(LocalModelsProvider.LOCAL_CAPABILITIES_STORAGE_KEY, serialized).then(undefined, () => {});
   }
 
   /**
@@ -1538,7 +1538,7 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
     this.variantsCache.clear();
     this.cloudCatalogNames.clear();
     this.cacheGeneration++;
-    this.context?.globalState.update(LibraryModelsProvider.CACHE_STORAGE_KEY, undefined)?.catch(() => {});
+    this.context?.globalState.update(LibraryModelsProvider.CACHE_STORAGE_KEY, undefined)?.then(undefined, () => {});
     this.treeChangeEmitter.fire(null);
   }
 
@@ -1762,7 +1762,7 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
         cloudNames: [...this.cloudCatalogNames],
         cachedAtMs: this.cacheTimeMs,
       })
-      ?.catch(() => {});
+      ?.then(undefined, () => {});
   }
 
   private async fetchLibraryModelNames(timeoutMs: number): Promise<string[]> {
@@ -2065,7 +2065,7 @@ export class CloudModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
     this.cacheTimeMs = 0;
     this.catalogModelNames = [];
     this.cloudCapabilitiesByBase.clear();
-    this.context.globalState?.update(CloudModelsProvider.CLOUD_CATALOG_STORAGE_KEY, undefined)?.catch(() => {});
+    this.context.globalState?.update(CloudModelsProvider.CLOUD_CATALOG_STORAGE_KEY, undefined)?.then(undefined, () => {});
     this.treeChangeEmitter.fire(null);
   }
 
@@ -2461,7 +2461,7 @@ export class CloudModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
         names: this.catalogModelNames,
         capabilitiesByBase,
       })
-      ?.catch(() => {});
+      ?.then(undefined, () => {});
   }
 
   private isCloudTaggedModel(modelName: string): boolean {

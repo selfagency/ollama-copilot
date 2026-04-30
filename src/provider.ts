@@ -2,7 +2,7 @@ import { appendToBlockquote } from '@selfagency/llm-stream-parser/markdown';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { Ollama, type ChatResponse, type Message, type ShowResponse } from 'ollama';
+import { Ollama, type ChatResponse, type Message, type ShowResponse, type Tool } from 'ollama';
 import {
   CancellationToken,
   EventEmitter,
@@ -569,7 +569,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
   private async attemptCloudRescue(params: {
     runtimeModelId: string;
     ollamaMessages: Message[];
-    tools: Parameters<typeof this.client.chat>[0]['tools'] | undefined;
+    tools: Tool[] | undefined;
     initialShouldThink: boolean;
     perRequestClient: Ollama;
     modelOptions: ModelOptionOverrides;
@@ -1100,7 +1100,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
   private processMsgContent(
     msg: LanguageModelChatRequestMessage,
     supportsVision: boolean,
-    ollamaMessages: Parameters<typeof this.client.chat>[0]['messages'],
+    ollamaMessages: Message[],
     systemContextParts: string[],
   ): { strippedImages: number; strippedBinary: number } {
     const role = msg.role === LanguageModelChatMessageRole.User ? 'user' : 'assistant';
@@ -1175,8 +1175,8 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
   private toOllamaMessages(
     messages: readonly LanguageModelChatRequestMessage[],
     supportsVision = true,
-  ): Parameters<typeof this.client.chat>[0]['messages'] {
-    const ollamaMessages: Parameters<typeof this.client.chat>[0]['messages'] = [];
+  ): Message[] {
+    const ollamaMessages: Message[] = [];
     const systemContextParts: string[] = [];
     let strippedImageCount = 0;
     let strippedBinaryDataCount = 0;

@@ -28,7 +28,6 @@ import {
   getModelOptionsForModel,
   loadModelSettings,
   saveModelSettings,
-  type ModelOptionOverrides,
   type ModelSettingsStore,
 } from './modelSettings.js';
 import { isThinkingModelId, OllamaChatModelProvider } from './provider.js';
@@ -970,7 +969,7 @@ async function handleDirectOllamaRequest(
             .showWarningMessage(
               `Could not open Ollama logs at ${logsPath}. Please check that the Ollama server is installed and logging is enabled.`,
             )
-            .catch(() => {});
+            .then(undefined, () => {});
         }
       }
     }
@@ -1191,14 +1190,14 @@ export async function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand('opilot.dumpPerformanceSnapshot', () => {
       logPerformanceSnapshot(diagnostics, sidebarRegistration?.getProfilingSnapshot?.());
-      vscode.window.showInformationMessage('Performance snapshot written to Opilot logs').catch(() => {});
+      vscode.window.showInformationMessage('Performance snapshot written to Opilot logs').then(undefined, () => {});
     }),
     vscode.commands.registerCommand('opilot.checkServerHealth', async () => {
       const isConnected = await testConnection(client);
       if (!isConnected) {
         await handleConnectionTestFailure(host, undefined, undefined, logOutputChannel);
       } else {
-        vscode.window.showInformationMessage('Ollama server is reachable.').catch(() => {});
+        vscode.window.showInformationMessage('Ollama server is reachable.').then(undefined, () => {});
       }
     }),
     statusBarRegistration,
