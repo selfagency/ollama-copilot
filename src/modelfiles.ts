@@ -139,6 +139,27 @@ export function resolveLineValue(value: string, lines: string[], lineIdx: number
   return { value, newIdx: lineIdx };
 }
 
+function applyParameterEntry(value: string, state: ModelfileParseState): void {
+  const paramSpaceIdx = value.indexOf(' ');
+  if (paramSpaceIdx !== -1) {
+    const paramName = value.substring(0, paramSpaceIdx);
+    const paramValue = value.substring(paramSpaceIdx + 1).trim();
+    const numVal = Number(paramValue);
+    state.parameters[paramName] = Number.isFinite(numVal) ? numVal : paramValue;
+  }
+}
+
+function applyMessageEntry(value: string, state: ModelfileParseState): void {
+  const msgMatch = /^(system|user|assistant)\s+(.+)$/s.exec(value);
+  if (msgMatch) {
+    let msgContent = msgMatch[2];
+    if (msgContent.startsWith('"') && msgContent.endsWith('"')) {
+      msgContent = msgContent.substring(1, msgContent.length - 1);
+    }
+    state.messages.push({ role: msgMatch[1] as 'system' | 'user' | 'assistant', content: msgContent });
+  }
+}
+
 function applyKeyword(keyword: string, value: string, state: ModelfileParseState): void {
   switch (keyword) {
     case 'FROM':
@@ -157,27 +178,12 @@ function applyKeyword(keyword: string, value: string, state: ModelfileParseState
       if (!state.result.adapters) state.result.adapters = {};
       state.result.adapters[value] = value;
       break;
-    case 'PARAMETER': {
-      const paramSpaceIdx = value.indexOf(' ');
-      if (paramSpaceIdx !== -1) {
-        const paramName = value.substring(0, paramSpaceIdx);
-        const paramValue = value.substring(paramSpaceIdx + 1).trim();
-        const numVal = Number(paramValue);
-        state.parameters[paramName] = Number.isFinite(numVal) ? numVal : paramValue;
-      }
+    case 'PARAMETER':
+      applyParameterEntry(value, state);
       break;
-    }
-    case 'MESSAGE': {
-      const msgMatch = /^(system|user|assistant)\s+(.+)$/s.exec(value);
-      if (msgMatch) {
-        let msgContent = msgMatch[2];
-        if (msgContent.startsWith('"') && msgContent.endsWith('"')) {
-          msgContent = msgContent.substring(1, msgContent.length - 1);
-        }
-        state.messages.push({ role: msgMatch[1] as 'system' | 'user' | 'assistant', content: msgContent });
-      }
+    case 'MESSAGE':
+      applyMessageEntry(value, state);
       break;
-    }
   }
 }
 

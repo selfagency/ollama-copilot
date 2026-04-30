@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as vscode from 'vscode';
 
 // ── vscode mock ──────────────────────────────────────────────────────────────
 
@@ -294,7 +295,7 @@ describe('registerStatusBarHeartbeat', () => {
 // ---------------------------------------------------------------------------
 
 describe('applyHealthResult', () => {
-  let item: typeof mockStatusBarItem;
+  let item: vscode.StatusBarItem;
   let state: HealthDebounceState;
 
   beforeEach(() => {
@@ -306,7 +307,7 @@ describe('applyHealthResult', () => {
       command: undefined as unknown,
       show: vi.fn(),
       dispose: vi.fn(),
-    };
+    } as unknown as vscode.StatusBarItem;
     state = { consecutiveFailures: 0, lastApplied: undefined };
   });
 
@@ -328,35 +329,35 @@ describe('applyHealthResult', () => {
 
   it('applies online result immediately and resets failure count', () => {
     state.consecutiveFailures = 3;
-    applyHealthResult(onlineResult, state, item as any);
+    applyHealthResult(onlineResult, state, item);
     expect(state.consecutiveFailures).toBe(0);
     expect(state.lastApplied).toBe(onlineResult);
     expect(item.text).toContain('pulse');
   });
 
   it('increments consecutiveFailures on offline result', () => {
-    applyHealthResult(offlineResult, state, item as any);
+    applyHealthResult(offlineResult, state, item);
     expect(state.consecutiveFailures).toBe(1);
   });
 
   it('does not apply offline result until DEBOUNCE_FAILURE_COUNT is reached when no prior state', () => {
-    applyHealthResult(offlineResult, state, item as any);
+    applyHealthResult(offlineResult, state, item);
     expect(state.lastApplied).toBeUndefined();
     expect(item.text).toBe('');
   });
 
   it('applies offline result after consecutive failures reach threshold', () => {
     state.consecutiveFailures = 2;
-    applyHealthResult(offlineResult, state, item as any);
+    applyHealthResult(offlineResult, state, item);
     expect(state.lastApplied).toBe(offlineResult);
     expect(item.text).toContain('warning');
   });
 
   it('shows last-applied online state while debouncing failures', () => {
-    applyHealthResult(onlineResult, state, item as any);
+    applyHealthResult(onlineResult, state, item);
     expect(item.text).toContain('pulse');
 
-    applyHealthResult(offlineResult, state, item as any);
+    applyHealthResult(offlineResult, state, item);
     expect(item.text).toContain('pulse');
   });
 });

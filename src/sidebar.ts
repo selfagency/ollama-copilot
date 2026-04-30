@@ -1405,6 +1405,35 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
     return groupedModels;
   }
 
+  private appendVariantsForModel(
+    model: ModelTreeItem,
+    filterLower: string,
+    localNames: Set<string>,
+    allItems: ModelTreeItem[],
+  ): void {
+    const cachedVariants = this.variantsCache.get(model.label);
+    if (cachedVariants) {
+      const variants = this.materializeVariants(cachedVariants, localNames);
+      const filteredVariants = variants.filter(
+        v =>
+          !filterLower ||
+          v.label.toLowerCase().includes(filterLower) ||
+          (typeof v.tooltip === 'string' && v.tooltip.toLowerCase().includes(filterLower)),
+      );
+      allItems.push(...filteredVariants);
+    } else {
+      this.fetchModelVariants(model.label).then(
+        raw => {
+          if (raw) {
+            this.variantsCache.set(model.label, raw);
+            this.treeChangeEmitter.fire(null);
+          }
+        },
+        () => {},
+      );
+    }
+  }
+
   private getChildrenFlat(models: ModelTreeItem[]): ModelTreeItem[] {
     const filterLower = this.filterText.toLowerCase();
     const localNames = this.getLocalModelNames();
@@ -1437,27 +1466,7 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
       }
 
       if (!this.recommendedOnly) {
-        const cachedVariants = this.variantsCache.get(model.label);
-        if (cachedVariants) {
-          const variants = this.materializeVariants(cachedVariants, localNames);
-          const filteredVariants = variants.filter(
-            v =>
-              !filterLower ||
-              v.label.toLowerCase().includes(filterLower) ||
-              (typeof v.tooltip === 'string' && v.tooltip.toLowerCase().includes(filterLower)),
-          );
-          allItems.push(...filteredVariants);
-        } else {
-          this.fetchModelVariants(model.label).then(
-            raw => {
-              if (raw) {
-                this.variantsCache.set(model.label, raw);
-                this.treeChangeEmitter.fire(null);
-              }
-            },
-            () => {},
-          );
-        }
+        this.appendVariantsForModel(model, filterLower, localNames, allItems);
       }
     }
 

@@ -186,21 +186,23 @@ export async function testConnection(
   }
 }
 
+function extractContextLengthFromEntries(entries: Iterable<[string, unknown]>): number | undefined {
+  for (const [key, value] of entries) {
+    if (key === 'context_length' || key.endsWith('.context_length')) {
+      return typeof value === 'number' && value > 0 ? value : undefined;
+    }
+  }
+  return undefined;
+}
+
 export function findContextLengthInModelInfo(
   modelInfoData: Record<string, unknown> | Map<string, unknown> | undefined | null,
 ): number | undefined {
   if (modelInfoData instanceof Map) {
-    for (const [key, value] of modelInfoData.entries()) {
-      if (key === 'context_length' || key.endsWith('.context_length')) {
-        return typeof value === 'number' && value > 0 ? value : undefined;
-      }
-    }
-  } else if (modelInfoData && typeof modelInfoData === 'object') {
-    for (const [key, value] of Object.entries(modelInfoData)) {
-      if (key === 'context_length' || key.endsWith('.context_length')) {
-        return typeof value === 'number' && value > 0 ? value : undefined;
-      }
-    }
+    return extractContextLengthFromEntries(modelInfoData.entries());
+  }
+  if (modelInfoData && typeof modelInfoData === 'object') {
+    return extractContextLengthFromEntries(Object.entries(modelInfoData));
   }
   return undefined;
 }

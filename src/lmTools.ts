@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { Ollama } from 'ollama';
+import type { Ollama, ModelResponse } from 'ollama';
 import type { DiagnosticsLogger } from './diagnostics.js';
 import type { LocalModelsProvider } from './sidebar.js';
 import { fetchModelCapabilities, testConnection } from './client.js';
@@ -20,16 +20,12 @@ export function registerOpilotLmTools(
 
   // Helper to wrap a JSON-serializable result into the VS Code LM return shape.
   const wrapResult = (payload: unknown) => {
-    // The LanguageModel tool result convention in tests uses an object with `content`
-    // array of LanguageModelTextPart. In the real API the LM host will accept
-    // structured results; emitting a single text part with JSON is interoperable.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return { content: [new (vscode as any).LanguageModelTextPart(JSON.stringify(payload))] };
+    return { content: [new vscode.LanguageModelTextPart(JSON.stringify(payload))] };
   };
 
   try {
     // List models
-    const d1 = (vscode as any).lm.registerTool(
+    const d1 = vscode.lm.registerTool(
       'opilot_list_models',
       {
         description: 'List all locally installed and cloud Ollama models',
@@ -39,8 +35,8 @@ export function registerOpilotLmTools(
         try {
           const list = await client.list();
           const ps = await client.ps();
-          const runningNames = new Set(ps.models.map((m: any) => m.name));
-          const mapped = list.models.map((m: any) => ({
+          const runningNames = new Set(ps.models.map((m: ModelResponse) => m.name));
+          const mapped = list.models.map((m: ModelResponse) => ({
             id: m.name,
             size: m.size,
             downloaded: true,
@@ -56,7 +52,7 @@ export function registerOpilotLmTools(
     disposables.push(d1);
 
     // Get model info
-    const d2 = (vscode as any).lm.registerTool(
+    const d2 = vscode.lm.registerTool(
       'opilot_get_model_info',
       {
         description: 'Return capabilities and metadata for a specific Ollama model',
@@ -82,7 +78,7 @@ export function registerOpilotLmTools(
     disposables.push(d2);
 
     // Check server health
-    const d3 = (vscode as any).lm.registerTool(
+    const d3 = vscode.lm.registerTool(
       'opilot_check_server_health',
       {
         description: 'Check whether the configured Ollama server is reachable',
@@ -91,7 +87,8 @@ export function registerOpilotLmTools(
       async (_input: Record<string, unknown>, _token: vscode.CancellationToken) => {
         try {
           const ok = await testConnection(client, 5000);
-          return wrapResult({ reachable: !!ok, host: (client as any).host ?? null });
+          const host = (client as unknown as { config: { host: string } }).config?.host ?? null;
+          return wrapResult({ reachable: !!ok, host });
         } catch (error) {
           diagnostics?.exception?.('[lm-tools] opilot_check_server_health failed', error);
           return wrapResult({ reachable: false, error: (error instanceof Error ? error.message : String(error)) });
@@ -102,7 +99,7 @@ export function registerOpilotLmTools(
 
     // Pull model (long running) — perform a direct pull without interactive UI.
     // Note: this downloads synchronously (stream: false) to simplify tool semantics.
-    const d4 = (vscode as any).lm.registerTool(
+    const d4 = vscode.lm.registerTool(
       'opilot_pull_model',
       {
         description: 'Pull (download) a model from the Ollama library to the local machine',
@@ -133,7 +130,7 @@ export function registerOpilotLmTools(
     disposables.push(d4);
 
     // Start model (warm)
-    const d5 = (vscode as any).lm.registerTool(
+    const d5 = vscode.lm.registerTool(
       'opilot_start_model',
       {
         description: 'Start (warm) a locally-installed or cloud model',
@@ -160,7 +157,7 @@ export function registerOpilotLmTools(
     disposables.push(d5);
 
     // Stop model
-    const d6 = (vscode as any).lm.registerTool(
+    const d6 = vscode.lm.registerTool(
       'opilot_stop_model',
       {
         description: 'Stop (unload) a running model',
@@ -188,6 +185,6 @@ export function registerOpilotLmTools(
     diagnostics?.exception?.('[lm-tools] failed to register tools', err);
   }
 
-  disposables.forEach(d => context.subscriptions.push(d));
+  for (const d of disposables) context.subscriptions.push(d);
   return disposables;
 }

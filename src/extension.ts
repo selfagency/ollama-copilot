@@ -295,6 +295,80 @@ export async function handleBuiltInOllamaConflict(
   }
 }
 
+async function runToolRound(
+  model: vscode.LanguageModelChat,
+  conversationMessages: vscode.LanguageModelChatMessage[],
+  tools: readonly vscode.LanguageModelToolInformation[],
+  request: vscode.ChatRequest,
+  stream: vscode.ChatResponseStream,
+  token: vscode.CancellationToken,
+  outputChannel?: DiagnosticsLogger,
+): Promise<boolean> {
+  const response = await model.sendRequest(
+    conversationMessages,
+    tools.length && request.toolInvocationToken
+      ? { tools: tools.map(t => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })) }
+      : {},
+    token,
+  );
+
+  const pendingToolCalls: vscode.LanguageModelToolCallPart[] = [];
+  const assistantTextParts: vscode.LanguageModelTextPart[] = [];
+  for await (const chunk of response.stream) {
+    if (token.isCancellationRequested) {
+      break;
+    }
+
+    if (chunk instanceof vscode.LanguageModelTextPart) {
+      assistantTextParts.push(chunk);
+      stream.markdown(chunk.value);
+    } else if (chunk instanceof vscode.LanguageModelToolCallPart) {
+      pendingToolCalls.push(chunk);
+    }
+  }
+
+  const hasTaskComplete = pendingToolCalls.some(tc => tc.name === TASK_COMPLETE_TOOL_NAME);
+  if (pendingToolCalls.length === 0 || !request.toolInvocationToken || hasTaskComplete) {
+    if (hasTaskComplete && request.toolInvocationToken) {
+      const tc = pendingToolCalls.find(c => c.name === TASK_COMPLETE_TOOL_NAME)!;
+      try {
+        await vscode.lm.invokeTool(
+          TASK_COMPLETE_TOOL_NAME,
+          { input: tc.input as Record<string, unknown>, toolInvocationToken: request.toolInvocationToken },
+          token,
+        );
+      } catch (taskCompleteError) {
+        const message = taskCompleteError instanceof Error ? taskCompleteError.message : String(taskCompleteError);
+        outputChannel?.warn(`[client] task_complete invocation failed (vscode-lm path): ${message}`);
+      }
+    }
+    return true;
+  }
+
+  conversationMessages.push(
+    vscode.LanguageModelChatMessage.Assistant([...assistantTextParts, ...pendingToolCalls]),
+  );
+
+  const toolResults: vscode.LanguageModelToolResultPart[] = [];
+  for (const toolCall of pendingToolCalls) {
+    try {
+      const result = await vscode.lm.invokeTool(
+        toolCall.name,
+        { input: toolCall.input as Record<string, unknown>, toolInvocationToken: request.toolInvocationToken },
+        token,
+      );
+      toolResults.push(new vscode.LanguageModelToolResultPart(toolCall.callId, result.content));
+    } catch (invokeError) {
+      const errMsg = invokeError instanceof Error ? invokeError.message : 'Tool execution failed';
+      toolResults.push(
+        new vscode.LanguageModelToolResultPart(toolCall.callId, [new vscode.LanguageModelTextPart(errMsg)]),
+      );
+    }
+  }
+  conversationMessages.push(vscode.LanguageModelChatMessage.User(toolResults));
+  return false;
+}
+
 async function handleVsCodeLmRequest(
   request: vscode.ChatRequest,
   messages: vscode.LanguageModelChatMessage[],
@@ -320,68 +394,10 @@ async function handleVsCodeLmRequest(
     const MAX_TOOL_ROUNDS = 10;
 
     for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
-      const response = await model.sendRequest(
-        conversationMessages,
-        tools.length && request.toolInvocationToken
-          ? { tools: tools.map(t => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })) }
-          : {},
-        token,
+      const shouldBreak = await runToolRound(
+        model, conversationMessages, tools, request, stream, token, outputChannel,
       );
-
-      const pendingToolCalls: vscode.LanguageModelToolCallPart[] = [];
-      const assistantTextParts: vscode.LanguageModelTextPart[] = [];
-      for await (const chunk of response.stream) {
-        if (token.isCancellationRequested) {
-          break;
-        }
-
-        if (chunk instanceof vscode.LanguageModelTextPart) {
-          assistantTextParts.push(chunk);
-          stream.markdown(chunk.value);
-        } else if (chunk instanceof vscode.LanguageModelToolCallPart) {
-          pendingToolCalls.push(chunk);
-        }
-      }
-
-      const hasTaskComplete = pendingToolCalls.some(tc => tc.name === TASK_COMPLETE_TOOL_NAME);
-      if (pendingToolCalls.length === 0 || !request.toolInvocationToken || hasTaskComplete) {
-        if (hasTaskComplete && request.toolInvocationToken) {
-          const tc = pendingToolCalls.find(c => c.name === TASK_COMPLETE_TOOL_NAME)!;
-          try {
-            await vscode.lm.invokeTool(
-              TASK_COMPLETE_TOOL_NAME,
-              { input: tc.input as Record<string, unknown>, toolInvocationToken: request.toolInvocationToken },
-              token,
-            );
-          } catch (taskCompleteError) {
-            const message = taskCompleteError instanceof Error ? taskCompleteError.message : String(taskCompleteError);
-            outputChannel?.warn(`[client] task_complete invocation failed (vscode-lm path): ${message}`);
-          }
-        }
-        break;
-      }
-
-      conversationMessages.push(
-        vscode.LanguageModelChatMessage.Assistant([...assistantTextParts, ...pendingToolCalls]),
-      );
-
-      const toolResults: vscode.LanguageModelToolResultPart[] = [];
-      for (const toolCall of pendingToolCalls) {
-        try {
-          const result = await vscode.lm.invokeTool(
-            toolCall.name,
-            { input: toolCall.input as Record<string, unknown>, toolInvocationToken: request.toolInvocationToken },
-            token,
-          );
-          toolResults.push(new vscode.LanguageModelToolResultPart(toolCall.callId, result.content));
-        } catch (invokeError) {
-          const errMsg = invokeError instanceof Error ? invokeError.message : 'Tool execution failed';
-          toolResults.push(
-            new vscode.LanguageModelToolResultPart(toolCall.callId, [new vscode.LanguageModelTextPart(errMsg)]),
-          );
-        }
-      }
-      conversationMessages.push(vscode.LanguageModelChatMessage.User(toolResults));
+      if (shouldBreak) break;
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
