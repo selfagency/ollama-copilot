@@ -102,7 +102,7 @@ type ModelfileParseState = {
   licenses: string[];
 };
 
-function parseMultiLineTripleQuoted(
+export function parseMultiLineTripleQuoted(
   lines: string[],
   startIdx: number,
   afterOpen: string,
@@ -124,7 +124,7 @@ function parseMultiLineTripleQuoted(
   return { value: parts.join('\n'), endIdx: i };
 }
 
-function resolveLineValue(value: string, lines: string[], lineIdx: number): { value: string; newIdx: number } {
+export function resolveLineValue(value: string, lines: string[], lineIdx: number): { value: string; newIdx: number } {
   if (value.startsWith('"""')) {
     const afterOpen = value.substring(3);
     if (afterOpen.endsWith('"""') && afterOpen.length > 3) {

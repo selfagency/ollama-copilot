@@ -119,12 +119,12 @@ function buildOnlineTooltip(result: HealthCheckResult): vscode.MarkdownString {
   return md;
 }
 
-interface HealthDebounceState {
+export interface HealthDebounceState {
   consecutiveFailures: number;
   lastApplied: HealthCheckResult | undefined;
 }
 
-function applyHealthResult(result: HealthCheckResult, state: HealthDebounceState, item: vscode.StatusBarItem): void {
+export function applyHealthResult(result: HealthCheckResult, state: HealthDebounceState, item: vscode.StatusBarItem): void {
   if (!result.online) {
     state.consecutiveFailures++;
   } else {

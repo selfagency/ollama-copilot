@@ -186,7 +186,7 @@ export async function testConnection(
   }
 }
 
-function findContextLengthInModelInfo(
+export function findContextLengthInModelInfo(
   modelInfoData: Record<string, unknown> | Map<string, unknown> | undefined | null,
 ): number | undefined {
   if (modelInfoData instanceof Map) {
@@ -205,7 +205,7 @@ function findContextLengthInModelInfo(
   return undefined;
 }
 
-function parseContextLength(modelInfoData: unknown, parameters: unknown): number {
+export function parseContextLength(modelInfoData: unknown, parameters: unknown): number {
   const contextFromInfo = findContextLengthInModelInfo(
     modelInfoData as Record<string, unknown> | Map<string, unknown> | undefined,
   );
@@ -218,7 +218,7 @@ function parseContextLength(modelInfoData: unknown, parameters: unknown): number
   return 4096; // Conservative default
 }
 
-function parseMaxOutputTokens(parameters: unknown, contextLength: number): number {
+export function parseMaxOutputTokens(parameters: unknown, contextLength: number): number {
   if (typeof parameters === 'string') {
     const match = /num_predict\s+(-?\d+)/m.exec(parameters);
     if (match) {

@@ -150,7 +150,7 @@ function assertNoMidStreamError(parsed: unknown): void {
   throw new Error(`OpenAI-compat stream payload error: ${parts.join(' | ') || 'unknown error'}`);
 }
 
-function extractSseDataLines(rawEvent: string): string[] {
+export function extractSseDataLines(rawEvent: string): string[] {
   return rawEvent
     .split(/\r?\n/)
     .map(line => line.trimEnd())
@@ -158,7 +158,7 @@ function extractSseDataLines(rawEvent: string): string[] {
     .map(line => line.slice(5).trimStart());
 }
 
-function* processTrailingFrame(trailing: string): Generator<string> {
+export function* processTrailingFrame(trailing: string): Generator<string> {
   if (!trailing) return;
   const dataLines = extractSseDataLines(trailing);
   const payload = dataLines.join('\n').trim();

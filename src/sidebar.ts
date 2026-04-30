@@ -331,7 +331,7 @@ function makeStatusActionItem(label: string, commandId: string, title?: string):
   return item;
 }
 
-type RunningProcessInfo = {
+export type RunningProcessInfo = {
   id?: string;
   durationMs?: number;
   processor?: string;
@@ -371,7 +371,7 @@ export function formatSizeForTooltip(bytes?: number): string {
   return `${gb.toFixed(1)} GB`;
 }
 
-function buildMemoryBreakdown(running: RunningProcessInfo, size?: number): string | null {
+export function buildMemoryBreakdown(running: RunningProcessInfo, size?: number): string | null {
   const totalSize = running.size ?? size ?? 0;
   const vramSize = running.sizeVram ?? 0;
   const ramSize = totalSize - vramSize;
@@ -388,7 +388,7 @@ function buildMemoryBreakdown(running: RunningProcessInfo, size?: number): strin
   return null;
 }
 
-function buildProcessorLine(processor: string): string | null {
+export function buildProcessorLine(processor: string): string | null {
   const procMatch = processor.match(/(\d+)% GPU/);
   if (procMatch) {
     const gpuPct = parseInt(procMatch[1], 10);
@@ -2572,12 +2572,12 @@ export async function handleDeleteModel(item: ModelTreeItem, localProvider: Loca
   }
 }
 
-interface PullProgressTracker {
+export interface PullProgressTracker {
   lastCompleted: number;
   lastTotal: number;
 }
 
-function computePullChunkProgress(
+export function computePullChunkProgress(
   total: number,
   completed: number,
   tracker: PullProgressTracker,
