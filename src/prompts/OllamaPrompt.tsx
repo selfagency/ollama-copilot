@@ -64,7 +64,7 @@ export interface OllamaPromptProps extends BasePromptElementProps {
  * rather than cutting mid-word.
  */
 export class OllamaPrompt extends PromptElement<OllamaPromptProps> {
-  render(_state: void, _sizing: PromptSizing): PromptPiece {
+  render(_state: undefined, _sizing: PromptSizing): PromptPiece {
     const { systemContent, history, userContent, references } = this.props;
 
     // Split history: last 2 turns kept at higher priority than everything older.
