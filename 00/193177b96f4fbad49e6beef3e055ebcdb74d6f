@@ -1,0 +1,29 @@
+src/lmTools.ts
+  h_5cf1e2c1161853 7-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "00193177b96f4fbad49e6beef3e055ebcdb74d6f",
+  "prompts": {
+    "ae8d6cf4f16b6f54": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "04249770-65be-4f75-b308-112be4889d27",
+        "model": "copilot/claude-haiku-4.5"
+      },
+      "human_author": "Daniel Sieradski",
+      "messages": [],
+      "total_additions": 228,
+      "total_deletions": 0,
+      "accepted_lines": 228,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/29bedb78b81d87a275e4975f8388767c3c37dd9cc552efba88a266d8e2df388d"
+    }
+  },
+  "humans": {
+    "h_5cf1e2c1161853": {
+      "author": "Daniel Sieradski"
+    }
+  }
+}
