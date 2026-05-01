@@ -1156,6 +1156,65 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
    * and JSON data parts are decoded back into inline text content. Unsupported
    * binary parts are stripped and logged.
    */
+  private processMsgContentPart(
+    part:
+      | LanguageModelTextPart
+      | LanguageModelDataPart
+      | LanguageModelToolCallPart
+      | LanguageModelToolResultPart
+      | unknown,
+    supportsVision: boolean,
+    ollamaMsg: Record<string, unknown>,
+    ollamaMessages: Message[],
+    textContentRef: { content: string },
+    imagesRef: { images: string[] },
+    strippedRef: { images: number; binary: number },
+  ): void {
+    if (part instanceof LanguageModelTextPart) {
+      textContentRef.content += part.value;
+    } else if (part instanceof LanguageModelDataPart) {
+      if (this.isImageMimeType(part.mimeType)) {
+        if (supportsVision) {
+          imagesRef.images.push(Buffer.from(part.data).toString('base64'));
+        } else {
+          strippedRef.images++;
+        }
+      } else {
+        const extracted = this.extractTextFromDataPart(part);
+        if (extracted !== undefined) {
+          textContentRef.content += extracted;
+        } else {
+          strippedRef.binary++;
+        }
+      }
+    } else if (part instanceof LanguageModelToolCallPart) {
+      if (!ollamaMsg.tool_calls) {
+        ollamaMsg.tool_calls = [];
+      }
+      const toolCalls = (ollamaMsg.tool_calls ?? []) as Record<string, unknown>[];
+      toolCalls.push({
+        id: this.getOllamaToolCallId(part.callId),
+        function: { name: part.name, arguments: part.input },
+      });
+      ollamaMsg.tool_calls = toolCalls;
+    } else if (part instanceof LanguageModelToolResultPart) {
+      const toolContent = part.content
+        .filter((c): c is LanguageModelTextPart => c instanceof LanguageModelTextPart)
+        .map(c => c.value)
+        .join('');
+      ollamaMessages.push({
+        role: 'tool',
+        content: toolContent,
+        tool_call_id: this.getOllamaToolCallId(part.callId),
+      } as never);
+    } else {
+      const extracted = this.extractTextFromUnknownInputPart(part);
+      if (extracted) {
+        textContentRef.content += extracted;
+      }
+    }
+  }
+
   private processMsgContent(
     msg: LanguageModelChatRequestMessage,
     supportsVision: boolean,
@@ -1164,75 +1223,43 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
   ): { strippedImages: number; strippedBinary: number } {
     const role = msg.role === LanguageModelChatMessageRole.User ? 'user' : 'assistant';
     const ollamaMsg: Record<string, unknown> = { role };
-    let textContent = '';
-    const images: string[] = [];
-    let strippedImages = 0;
-    let strippedBinary = 0;
+    const textContentRef = { content: '' };
+    const imagesRef = { images: [] };
+    const strippedRef = { images: 0, binary: 0 };
 
     for (const part of msg.content) {
-      if (part instanceof LanguageModelTextPart) {
-        textContent += part.value;
-      } else if (part instanceof LanguageModelDataPart) {
-        if (this.isImageMimeType(part.mimeType)) {
-          if (supportsVision) {
-            images.push(Buffer.from(part.data).toString('base64'));
-          } else {
-            strippedImages++;
-          }
-        } else {
-          const extracted = this.extractTextFromDataPart(part);
-          if (extracted !== undefined) {
-            textContent += extracted;
-          } else {
-            strippedBinary++;
-          }
-        }
-      } else if (part instanceof LanguageModelToolCallPart) {
-        if (!ollamaMsg.tool_calls) {
-          ollamaMsg.tool_calls = [];
-        }
-        const toolCalls = (ollamaMsg.tool_calls ?? []) as Record<string, unknown>[];
-        toolCalls.push({
-          id: this.getOllamaToolCallId(part.callId),
-          function: { name: part.name, arguments: part.input },
-        });
-        ollamaMsg.tool_calls = toolCalls;
-      } else if (part instanceof LanguageModelToolResultPart) {
-        const toolContent = part.content
-          .filter((c): c is LanguageModelTextPart => c instanceof LanguageModelTextPart)
-          .map(c => c.value)
-          .join('');
-        ollamaMessages.push({
-          role: 'tool',
-          content: toolContent,
-          tool_call_id: this.getOllamaToolCallId(part.callId),
-        } as never);
-      } else {
-        const extracted = this.extractTextFromUnknownInputPart(part);
-        if (extracted) {
-          textContent += extracted;
-        }
-      }
+      this.processMsgContentPart(
+        part,
+        supportsVision,
+        ollamaMsg,
+        ollamaMessages,
+        textContentRef,
+        imagesRef,
+        strippedRef,
+      );
     }
 
+    // Handle context extraction for user messages
     if (role === 'user') {
-      const split = splitLeadingXmlContextBlocks(textContent);
+      const split = splitLeadingXmlContextBlocks(textContentRef.content);
       if (split.contextBlocks.length > 0) {
         systemContextParts.push(...split.contextBlocks);
       }
-      textContent = split.content;
+      textContentRef.content = split.content;
     }
-    if (textContent || images.length > 0) {
-      ollamaMsg.content = textContent;
+
+    // Add content and images to message
+    if (textContentRef.content || imagesRef.images.length > 0) {
+      ollamaMsg.content = textContentRef.content;
     }
-    if (images.length > 0) {
-      ollamaMsg.images = images;
+    if (imagesRef.images.length > 0) {
+      ollamaMsg.images = imagesRef.images;
     }
     if (ollamaMsg.content || ollamaMsg.tool_calls) {
       ollamaMessages.push(ollamaMsg as never);
     }
 
-    return { strippedImages, strippedBinary };
+    return { strippedImages: strippedRef.images, strippedBinary: strippedRef.binary };
   }
 
   private toOllamaMessages(messages: readonly LanguageModelChatRequestMessage[], supportsVision = true): Message[] {
