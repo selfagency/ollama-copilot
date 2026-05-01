@@ -515,7 +515,7 @@ describe('findContextLengthInModelInfo', () => {
   beforeEach(async () => {
     vi.resetModules();
     vi.doMock('vscode', () => makeVscodeMock());
-    vi.doMock('ollama', () => ({ Ollama: class {} }));
+    vi.doMock('ollama', () => ({ Ollama: class MockOllama {} }));
     ({ findContextLengthInModelInfo } = await import('./client.js'));
   });
 
@@ -568,7 +568,7 @@ describe('parseContextLength', () => {
   beforeEach(async () => {
     vi.resetModules();
     vi.doMock('vscode', () => makeVscodeMock());
-    vi.doMock('ollama', () => ({ Ollama: class {} }));
+    vi.doMock('ollama', () => ({ Ollama: class MockOllama {} }));
     ({ parseContextLength } = await import('./client.js'));
   });
 
@@ -601,7 +601,7 @@ describe('parseMaxOutputTokens', () => {
   beforeEach(async () => {
     vi.resetModules();
     vi.doMock('vscode', () => makeVscodeMock());
-    vi.doMock('ollama', () => ({ Ollama: class {} }));
+    vi.doMock('ollama', () => ({ Ollama: class MockOllama {} }));
     ({ parseMaxOutputTokens } = await import('./client.js'));
   });
 

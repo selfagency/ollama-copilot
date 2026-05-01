@@ -19,8 +19,10 @@ export function registerOpilotLmTools(
   const disposables: vscode.Disposable[] = [];
 
   // Helper to wrap a JSON-serializable result into the VS Code LM return shape.
-  const wrapResult = (payload: unknown) => {
-    return { content: [new vscode.LanguageModelTextPart(JSON.stringify(payload))] };
+  const createLmToolResult = (payload: unknown) => {
+    const jsonStr = JSON.stringify(payload);
+    const textPart = new vscode.LanguageModelTextPart(jsonStr);
+    return { content: [textPart] };
   };
 
   try {
@@ -42,10 +44,10 @@ export function registerOpilotLmTools(
             downloaded: true,
             running: runningNames.has(m.name),
           }));
-          return wrapResult(mapped);
+          return createLmToolResult(mapped);
         } catch (error) {
           diagnostics?.exception?.('[lm-tools] opilot_list_models failed', error);
-          return wrapResult({ error: (error instanceof Error ? error.message : String(error)) });
+          return createLmToolResult({ error: error instanceof Error ? error.message : String(error) });
         }
       },
     );
@@ -66,12 +68,12 @@ export function registerOpilotLmTools(
       async (input: Record<string, unknown>, _token: vscode.CancellationToken) => {
         try {
           const modelId = typeof input.modelId === 'string' ? input.modelId : '';
-          if (!modelId) return wrapResult({ error: 'missing modelId' });
+          if (!modelId) return createLmToolResult({ error: 'missing modelId' });
           const caps = await fetchModelCapabilities(client, modelId);
-          return wrapResult({ modelId, capabilities: caps });
+          return createLmToolResult({ modelId, capabilities: caps });
         } catch (error) {
           diagnostics?.exception?.('[lm-tools] opilot_get_model_info failed', error);
-          return wrapResult({ error: (error instanceof Error ? error.message : String(error)) });
+          return createLmToolResult({ error: error instanceof Error ? error.message : String(error) });
         }
       },
     );
@@ -88,10 +90,13 @@ export function registerOpilotLmTools(
         try {
           const ok = await testConnection(client, 5000);
           const host = (client as unknown as { config: { host: string } }).config?.host ?? null;
-          return wrapResult({ reachable: !!ok, host });
+          return createLmToolResult({ reachable: !!ok, host });
         } catch (error) {
           diagnostics?.exception?.('[lm-tools] opilot_check_server_health failed', error);
-          return wrapResult({ reachable: false, error: (error instanceof Error ? error.message : String(error)) });
+          return createLmToolResult({
+            reachable: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
       },
     );
@@ -113,17 +118,17 @@ export function registerOpilotLmTools(
       async (input: Record<string, unknown>, _token: vscode.CancellationToken) => {
         try {
           const modelId = typeof input.modelId === 'string' ? input.modelId : '';
-          if (!modelId) return wrapResult({ error: 'missing modelId' });
+          if (!modelId) return createLmToolResult({ error: 'missing modelId' });
           await client.pull({ model: modelId, stream: false });
           try {
             localProvider.refresh();
           } catch {
             // best-effort
           }
-          return wrapResult({ pulled: true, modelId });
+          return createLmToolResult({ pulled: true, modelId });
         } catch (error) {
           diagnostics?.exception?.('[lm-tools] opilot_pull_model failed', error);
-          return wrapResult({ error: (error instanceof Error ? error.message : String(error)) });
+          return createLmToolResult({ error: error instanceof Error ? error.message : String(error) });
         }
       },
     );
@@ -144,13 +149,13 @@ export function registerOpilotLmTools(
       async (input: Record<string, unknown>, _token: vscode.CancellationToken) => {
         try {
           const modelId = typeof input.modelId === 'string' ? input.modelId : '';
-          if (!modelId) return wrapResult({ error: 'missing modelId' });
+          if (!modelId) return createLmToolResult({ error: 'missing modelId' });
           // Use the LocalModelsProvider API directly (safe and idempotent)
           await localProvider.startModel(modelId);
-          return wrapResult({ started: true, modelId });
+          return createLmToolResult({ started: true, modelId });
         } catch (error) {
           diagnostics?.exception?.('[lm-tools] opilot_start_model failed', error);
-          return wrapResult({ error: (error instanceof Error ? error.message : String(error)) });
+          return createLmToolResult({ error: error instanceof Error ? error.message : String(error) });
         }
       },
     );
@@ -171,12 +176,12 @@ export function registerOpilotLmTools(
       async (input: Record<string, unknown>, _token: vscode.CancellationToken) => {
         try {
           const modelId = typeof input.modelId === 'string' ? input.modelId : '';
-          if (!modelId) return wrapResult({ error: 'missing modelId' });
+          if (!modelId) return createLmToolResult({ error: 'missing modelId' });
           await localProvider.stopModel(modelId);
-          return wrapResult({ stopped: true, modelId });
+          return createLmToolResult({ stopped: true, modelId });
         } catch (error) {
           diagnostics?.exception?.('[lm-tools] opilot_stop_model failed', error);
-          return wrapResult({ error: (error instanceof Error ? error.message : String(error)) });
+          return createLmToolResult({ error: error instanceof Error ? error.message : String(error) });
         }
       },
     );

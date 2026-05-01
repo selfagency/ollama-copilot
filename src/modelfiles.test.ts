@@ -1354,7 +1354,7 @@ describe('parseMultiLineTripleQuoted', () => {
   beforeEach(async () => {
     vi.resetModules();
     vi.doMock('vscode', () => minimalVscodeMock());
-    vi.doMock('ollama', () => ({ Ollama: class {} }));
+    vi.doMock('ollama', () => ({ Ollama: class MockOllama {} }));
     ({ parseMultiLineTripleQuoted } = await import('./modelfiles.js'));
   });
 
@@ -1388,16 +1388,12 @@ describe('parseMultiLineTripleQuoted', () => {
 // ---------------------------------------------------------------------------
 
 describe('resolveLineValue', () => {
-  let resolveLineValue: (
-    value: string,
-    lines: string[],
-    lineIdx: number,
-  ) => { value: string; newIdx: number };
+  let resolveLineValue: (value: string, lines: string[], lineIdx: number) => { value: string; newIdx: number };
 
   beforeEach(async () => {
     vi.resetModules();
     vi.doMock('vscode', () => minimalVscodeMock());
-    vi.doMock('ollama', () => ({ Ollama: class {} }));
+    vi.doMock('ollama', () => ({ Ollama: class MockOllama {} }));
     ({ resolveLineValue } = await import('./modelfiles.js'));
   });
 

@@ -141,27 +141,45 @@ async function ensureTagDoesNotExist(octokit, owner, repo, tag) {
   }
 }
 
+/** @param {string} v - Version string to parse */
+function parseVersion(v) {
+  const parts = v.replace(/^v/, '').split('.');
+  return parts.map(Number);
+}
+
 function resolvePreviousTag(tagsResp, tag) {
-  // codacy:ignore
-  const parseVersion = v => v.replace(/^v/, '').split('.').map(Number);
   return (
     tagsResp
       .map(r => r.ref.replace('refs/tags/', ''))
       .filter(t => t !== tag)
       .sort((a, b) => {
-        const [aMaj, aMin, aPatch] = parseVersion(a);
-        const [bMaj, bMin, bPatch] = parseVersion(b);
+        const aParts = parseVersion(a);
+        const bParts = parseVersion(b);
+        const [aMaj, aMin, aPatch] = aParts;
+        const [bMaj, bMin, bPatch] = bParts;
         return aMaj - bMaj || aMin - bMin || aPatch - bPatch;
       })
       .at(-1) ?? ''
   );
 }
 
+/** Validate that changelogPath is a safe string for file operations */
+function validateFilePath(filePath) {
+  if (typeof filePath !== 'string' || !filePath) {
+    throw new Error('Invalid file path');
+  }
+  // Ensure path is reasonable (no null bytes, etc.)
+  if (filePath.includes('\x00')) {
+    throw new Error('File path contains invalid characters');
+  }
+  return filePath;
+}
+
 function updateChangelogFile(changelogPath, heading, section) {
   let original;
   try {
-    // nosemgrep: file-access-taint
-    original = readFileSync(changelogPath, 'utf8');
+    const safePath = validateFilePath(changelogPath);
+    original = readFileSync(safePath, 'utf8');
   } catch {
     original = '# Change Log\n\n## [Unreleased]\n';
   }
@@ -176,8 +194,8 @@ function updateChangelogFile(changelogPath, heading, section) {
         : firstVersionIdx >= 0
           ? `${original.slice(0, firstVersionIdx)}${section}\n${original.slice(firstVersionIdx)}`
           : `${original}\n${section}`;
-    // nosemgrep: file-access-taint
-    writeFileSync(changelogPath, updated);
+    const safePath = validateFilePath(changelogPath);
+    writeFileSync(safePath, updated);
   } else {
     console.log('ℹ️  CHANGELOG already contains this release heading; skipping.');
   }

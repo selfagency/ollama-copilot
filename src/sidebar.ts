@@ -371,27 +371,35 @@ export function formatSizeForTooltip(bytes?: number): string {
   return `${gb.toFixed(1)} GB`;
 }
 
+function formatMemorySizes(ramSize: number, vramSize: number): string {
+  const ramGB = (ramSize / 1024 ** 3).toFixed(1);
+  const vramGB = (vramSize / 1024 ** 3).toFixed(1);
+  return `🧮 RAM: ${ramGB}GB | VRAM: ${vramGB}GB`;
+}
+
+function formatTotalMemory(totalSize: number): string {
+  const totalGB = (totalSize / 1024 ** 3).toFixed(1);
+  return `🧮 RAM: ${totalGB}GB`;
+}
+
 export function buildMemoryBreakdown(running: RunningProcessInfo, size?: number): string | null {
   const totalSize = running.size ?? size ?? 0;
   const vramSize = running.sizeVram ?? 0;
   const ramSize = totalSize - vramSize;
 
   if (vramSize > 0 && ramSize > 0) {
-    const ramGB = (ramSize / 1024 ** 3).toFixed(1);
-    const vramGB = (vramSize / 1024 ** 3).toFixed(1);
-    return `🧮 RAM: ${ramGB}GB | VRAM: ${vramGB}GB`;
+    return formatMemorySizes(ramSize, vramSize);
   }
   if (totalSize > 0) {
-    const totalGB = (totalSize / 1024 ** 3).toFixed(1);
-    return `🧮 RAM: ${totalGB}GB`;
+    return formatTotalMemory(totalSize);
   }
   return null;
 }
 
 export function buildProcessorLine(processor: string): string | null {
-  const procMatch = processor.slice(0, 32).match(/^(\d{1,3})% GPU$/);
+  const procMatch = /^(\d{1,3})% GPU$/.exec(processor.slice(0, 32));
   if (procMatch) {
-    const gpuPct = parseInt(procMatch[1], 10);
+    const gpuPct = Number.parseInt(procMatch[1], 10);
     const cpuPct = 100 - gpuPct;
     if (cpuPct > 0 && gpuPct > 0) return `💻 CPU: ${cpuPct}% | GPU: ${gpuPct}%`;
     if (gpuPct === 100) return `💻 GPU: 100%`;
@@ -576,7 +584,9 @@ function schedulePersistModelPreviewCache(): void {
       value: entry.value,
       expiresAt: entry.expiresAt,
     }));
-    modelPreviewCacheContext?.globalState.update(MODEL_PREVIEW_CACHE_STORAGE_KEY, { entries })?.then(undefined, () => {});
+    modelPreviewCacheContext?.globalState
+      .update(MODEL_PREVIEW_CACHE_STORAGE_KEY, { entries })
+      ?.then(undefined, () => {});
     modelPreviewCachePersistTimer = null;
   }, 250);
 }
@@ -717,7 +727,9 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
       serialized[modelName] = capabilities;
     }
 
-    this.context.globalState.update(LocalModelsProvider.LOCAL_CAPABILITIES_STORAGE_KEY, serialized).then(undefined, () => {});
+    this.context.globalState
+      .update(LocalModelsProvider.LOCAL_CAPABILITIES_STORAGE_KEY, serialized)
+      .then(undefined, () => {});
   }
 
   /**
@@ -771,8 +783,7 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
                 m.label.toLowerCase().includes(filterLower) ||
                 (typeof m.tooltip === 'string' && m.tooltip.toLowerCase().includes(filterLower)),
             )) &&
-          (this.capabilityFilters.size === 0 ||
-            familyModels.some(m => this.modelMatchesCapabilityFilters(m.label))) &&
+          (this.capabilityFilters.size === 0 || familyModels.some(m => this.modelMatchesCapabilityFilters(m.label))) &&
           (!this.recommendedOnly || familyModels.some(m => isRecommendedForHardware(m.label))),
       )
       .sort((a, b) => a[0].localeCompare(b[0]));
@@ -1237,9 +1248,7 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
     if (pid !== null) {
       await this.attemptForceKill(modelName, pid);
     } else {
-      window.showWarningMessage(
-        `Model ${modelName} did not stop after 30 seconds. Try restarting the Ollama server.`,
-      );
+      window.showWarningMessage(`Model ${modelName} did not stop after 30 seconds. Try restarting the Ollama server.`);
     }
   }
 
@@ -1434,6 +1443,27 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
     }
   }
 
+  private modelMatchesTextFilter(model: ModelTreeItem, filterLower: string): boolean {
+    if (!filterLower) return true;
+    if (model.label.toLowerCase().includes(filterLower)) return true;
+    if (typeof model.tooltip === 'string' && model.tooltip.toLowerCase().includes(filterLower)) return true;
+    return false;
+  }
+
+  private isModelInstalled(model: ModelTreeItem, localNames: Set<string>): boolean {
+    return Array.from(localNames).some(local => local === model.label || local.startsWith(`${model.label}:`));
+  }
+
+  private applyRecommendedFilter(items: ModelTreeItem[]): ModelTreeItem[] {
+    if (!this.recommendedOnly) return items;
+    return items.filter(item => {
+      if (item.type === 'status') return true;
+      const cached = this.variantsCache.get(item.label);
+      if (!cached) return true;
+      return cached.some(v => isRecommendedForHardware(v.name));
+    });
+  }
+
   private getChildrenFlat(models: ModelTreeItem[]): ModelTreeItem[] {
     const filterLower = this.filterText.toLowerCase();
     const localNames = this.getLocalModelNames();
@@ -1450,16 +1480,9 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
         continue;
       }
 
-      if (
-        !filterLower ||
-        model.label.toLowerCase().includes(filterLower) ||
-        (typeof model.tooltip === 'string' && model.tooltip.toLowerCase().includes(filterLower))
-      ) {
+      if (this.modelMatchesTextFilter(model, filterLower)) {
         model.collapsibleState = TreeItemCollapsibleState.None;
-        const isInstalled = Array.from(localNames).some(
-          local => local === model.label || local.startsWith(`${model.label}:`),
-        );
-        if (isInstalled) {
+        if (this.isModelInstalled(model, localNames)) {
           model.iconPath = createThemeIcon('check');
         }
         allItems.push(model);
@@ -1470,15 +1493,7 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
       }
     }
 
-    const filteredItems = this.recommendedOnly
-      ? allItems.filter(item => {
-          if (item.type === 'status') return true;
-          const cached = this.variantsCache.get(item.label);
-          if (!cached) return true;
-          return cached.some(v => isRecommendedForHardware(v.name));
-        })
-      : allItems;
-
+    const filteredItems = this.applyRecommendedFilter(allItems);
     return filteredItems.sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()));
   }
 
@@ -2074,7 +2089,9 @@ export class CloudModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
     this.cacheTimeMs = 0;
     this.catalogModelNames = [];
     this.cloudCapabilitiesByBase.clear();
-    this.context.globalState?.update(CloudModelsProvider.CLOUD_CATALOG_STORAGE_KEY, undefined)?.then(undefined, () => {});
+    this.context.globalState
+      ?.update(CloudModelsProvider.CLOUD_CATALOG_STORAGE_KEY, undefined)
+      ?.then(undefined, () => {});
     this.treeChangeEmitter.fire(null);
   }
 
@@ -2087,11 +2104,7 @@ export class CloudModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
     this.treeChangeEmitter.fire(null);
   }
 
-  private cloudModelMatchesSingleFilter(
-    filter: string,
-    caps: Set<string> | undefined,
-    modelName: string,
-  ): boolean {
+  private cloudModelMatchesSingleFilter(filter: string, caps: Set<string> | undefined, modelName: string): boolean {
     if (filter === 'thinking') return caps !== undefined ? caps.has('thinking') : isThinkingModelId(modelName);
     if (filter === 'tools') return caps === undefined || caps.has('tools');
     if (filter === 'vision') return caps === undefined || caps.has('vision');
@@ -2414,7 +2427,12 @@ export class CloudModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
       const until = formatRelativeFromNow(runningInfo?.durationMs);
       tooltipLines.push(`⏱️ ${until}`);
     }
-    const capLine = buildCapabilityLines({ thinking: isThinking, tools: hasTools, vision: hasVision, embedding: hasEmbedding });
+    const capLine = buildCapabilityLines({
+      thinking: isThinking,
+      tools: hasTools,
+      vision: hasVision,
+      embedding: hasEmbedding,
+    });
     if (capLine) tooltipLines.push(capLine);
     item.tooltip = tooltipLines.join('\n');
 
@@ -2424,7 +2442,9 @@ export class CloudModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
           updateItemTooltip(item, `${item.tooltip as string}\n${preview.description}`, this.treeChangeEmitter);
         }
       },
-      () => { /* keep existing tooltip */ },
+      () => {
+        /* keep existing tooltip */
+      },
     );
 
     return item;

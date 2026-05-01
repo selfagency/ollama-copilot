@@ -1,7 +1,18 @@
 import type { Tool } from 'ollama';
 
-export { buildXmlToolSystemPrompt, extractXmlToolCalls } from '@selfagency/llm-stream-parser/tool-calls';
-export type { XmlToolCall, XmlToolInfo } from '@selfagency/llm-stream-parser/tool-calls';
+export {
+  buildXmlToolSystemPrompt,
+  buildNativeToolsArray,
+  extractXmlToolCalls,
+} from '@selfagency/llm-stream-parser/tool-calls';
+export type {
+  XmlToolCall,
+  XmlToolInfo,
+  BuildXmlToolSystemPromptOptions,
+  NativeTool,
+  BuildNativeToolsOptions,
+  JsonSchemaProperty,
+} from '@selfagency/llm-stream-parser/tool-calls';
 
 export function normalizeToolParameters(inputSchema: unknown): Tool['function']['parameters'] {
   if (inputSchema && typeof inputSchema === 'object' && !Array.isArray(inputSchema)) {

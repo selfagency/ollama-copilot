@@ -175,7 +175,7 @@ function applyKeyword(keyword: string, value: string, state: ModelfileParseState
       state.licenses.push(value);
       break;
     case 'ADAPTER':
-      if (!state.result.adapters) state.result.adapters = {};
+      state.result.adapters ??= {};
       state.result.adapters[value] = value;
       break;
     case 'PARAMETER':

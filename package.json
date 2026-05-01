@@ -40,9 +40,9 @@
     "task": "task"
   },
   "dependencies": {
-    "@selfagency/llm-stream-parser": "^0.1.5",
-    "ollama": "^0.6.3",
+    "@selfagency/llm-stream-parser": "^0.2.0",
     "@vscode/prompt-tsx": "0.4.0-alpha.8",
+    "ollama": "^0.6.3",
     "undici": "^6.25.0"
   },
   "devDependencies": {

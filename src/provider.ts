@@ -36,7 +36,7 @@ import {
 import { getModelOptionsForModel, type ModelOptionOverrides, type ModelSettingsStore } from './modelSettings.js';
 import { getSetting } from './settings.js';
 import { ThinkingParser } from './thinkingParser.js';
-import { isToolsNotSupportedError, normalizeToolParameters } from './toolUtils.js';
+import { buildNativeToolsArray, isToolsNotSupportedError } from './toolUtils.js';
 
 const MODEL_LIST_REFRESH_MIN_INTERVAL_MS = 5_000;
 const MODEL_INFO_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -327,37 +327,50 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
   }
 
   /**
+   * Extract context_length from a Map or object by searching for the key or key.context_length suffix
+   */
+  private extractContextLengthFromInfo(modelinfo: Map<string, unknown> | Record<string, unknown>): unknown {
+    if (modelinfo instanceof Map) {
+      for (const [key, value] of modelinfo.entries()) {
+        if (key === 'context_length' || key.endsWith('.context_length')) {
+          return value;
+        }
+      }
+    } else {
+      for (const [key, value] of Object.entries(modelinfo)) {
+        if (key === 'context_length' || key.endsWith('.context_length')) {
+          return value;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Extract context_length from parameters string (num_ctx field)
+   */
+  private extractContextLengthFromParameters(parameters: string | undefined): number {
+    if (!parameters) return 0;
+    const match = /^num_ctx\s+(\d+)/m.exec(parameters);
+    return match ? Number.parseInt(match[1], 10) : 0;
+  }
+
+  /**
    * Get information about a specific model
    */
   private parseModelContextLength(
     modelinfo: Map<string, unknown> | Record<string, unknown> | undefined,
     parameters: string | undefined,
   ): number {
-    let infoCtx: unknown;
-    if (modelinfo instanceof Map) {
-      for (const [key, value] of modelinfo.entries()) {
-        if (key === 'context_length' || key.endsWith('.context_length')) {
-          infoCtx = value;
-          break;
-        }
-      }
-    } else if (modelinfo && typeof modelinfo === 'object') {
-      for (const [key, value] of Object.entries(modelinfo)) {
-        if (key === 'context_length' || key.endsWith('.context_length')) {
-          infoCtx = value;
-          break;
-        }
+    if (modelinfo) {
+      const infoCtx = this.extractContextLengthFromInfo(modelinfo);
+      if (typeof infoCtx === 'number' && infoCtx > 0) {
+        return infoCtx;
       }
     }
 
-    if (typeof infoCtx === 'number' && infoCtx > 0) {
-      return infoCtx;
-    }
-    if (parameters) {
-      const match = /^num_ctx\s+(\d+)/m.exec(parameters);
-      if (match) return parseInt(match[1], 10);
-    }
-    return 0;
+    const parametersCtx = this.extractContextLengthFromParameters(parameters);
+    return parametersCtx > 0 ? parametersCtx : 0;
   }
 
   private parseModelMaxOutputTokens(parameters: string | undefined, advertisedContextLength: number): number {
@@ -653,6 +666,62 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
     return false;
   }
 
+  /**
+   * Retry after a thinking support error by disabling thinking and attempting again.
+   * Returns null if recovery failed, otherwise returns the response.
+   */
+  private async recoverFromThinkingError(
+    streamFn: ChatStreamFn,
+    runtimeModelId: string,
+    isCloudModel: boolean,
+    tools: Parameters<typeof this.client.chat>[0]['tools'] | undefined,
+  ): Promise<{ response: AsyncIterable<ChatResponse>; effectiveTools: typeof tools; shouldThink: boolean } | null> {
+    this.thinkingModels.delete(runtimeModelId);
+    this.nonThinkingModels.add(runtimeModelId);
+    this.outputChannel.debug(`[client] retrying without thinking support for ${runtimeModelId}`);
+
+    try {
+      const response = await streamFn(false, tools);
+      return { response, effectiveTools: tools, shouldThink: false };
+    } catch (retryError) {
+      // After disabling thinking, try disabling tools for cloud models
+      if (isCloudModel && tools && this.isThinkingInternalServerError(retryError)) {
+        this.outputChannel.warn(
+          `[client] cloud model ${runtimeModelId} failed with tools after think retry; retrying without tools`,
+        );
+        const response = await streamFn(false, undefined);
+        return { response, effectiveTools: undefined, shouldThink: false };
+      }
+      throw retryError;
+    }
+  }
+
+  /**
+   * Retry by disabling tools for a cloud model
+   */
+  private async recoverFromCloudToolsError(
+    streamFn: ChatStreamFn,
+    runtimeModelId: string,
+    shouldThink: boolean,
+  ): Promise<{ response: AsyncIterable<ChatResponse>; effectiveTools: undefined; shouldThink: boolean }> {
+    this.outputChannel.warn(`[client] cloud model ${runtimeModelId} failed with tools; retrying without tools`);
+    const response = await streamFn(shouldThink, undefined);
+    return { response, effectiveTools: undefined, shouldThink };
+  }
+
+  /**
+   * Retry by disabling tools for any model
+   */
+  private async recoverFromToolsError(
+    streamFn: ChatStreamFn,
+    runtimeModelId: string,
+    shouldThink: boolean,
+  ): Promise<{ response: AsyncIterable<ChatResponse>; effectiveTools: undefined; shouldThink: boolean }> {
+    this.outputChannel.warn(`[client] model ${runtimeModelId} rejected tools; retrying without tools`);
+    const response = await streamFn(shouldThink, undefined);
+    return { response, effectiveTools: undefined, shouldThink };
+  }
+
   private async initiateChatStream(
     streamFn: ChatStreamFn,
     shouldThink: boolean,
@@ -660,59 +729,33 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
     isCloudModel: boolean,
     runtimeModelId: string,
   ): Promise<{ response: AsyncIterable<ChatResponse>; effectiveTools: typeof tools; shouldThink: boolean }> {
-    let effectiveTools = tools;
-    let activeShouldThink = shouldThink;
-
     try {
       this.outputChannel.debug(
         `[client] chat request: model=${runtimeModelId}, tools=${tools?.length ?? 0}, think=${shouldThink}, native=${!isCloudModel}`,
       );
-      const response = await streamFn(activeShouldThink, tools);
+      const response = await streamFn(shouldThink, tools);
       this.outputChannel.info(`[client] chat response stream started for ${runtimeModelId}`);
-      return { response, effectiveTools, shouldThink: activeShouldThink };
+      return { response, effectiveTools: tools, shouldThink };
     } catch (innerError) {
       this.outputChannel.exception(`[client] chat request failed for model ${runtimeModelId}`, innerError);
 
+      // Attempt recovery from thinking errors
       if (
-        activeShouldThink &&
+        shouldThink &&
         (this.isThinkingNotSupportedError(innerError) || this.isThinkingInternalServerError(innerError))
       ) {
-        this.thinkingModels.delete(runtimeModelId);
-        this.nonThinkingModels.add(runtimeModelId);
-        activeShouldThink = false;
-        this.outputChannel.debug(`[client] retrying without thinking support for ${runtimeModelId}`);
-        try {
-          const response = await streamFn(false, tools);
-          return { response, effectiveTools, shouldThink: activeShouldThink };
-        } catch (retryError) {
-          if (
-            isCloudModel &&
-            tools &&
-            (this.isThinkingInternalServerError(retryError) || isToolsNotSupportedError(retryError))
-          ) {
-            this.outputChannel.warn(
-              `[client] cloud model ${runtimeModelId} failed with tools after think retry; retrying without tools`,
-            );
-            effectiveTools = undefined;
-            const response = await streamFn(false, undefined);
-            return { response, effectiveTools, shouldThink: activeShouldThink };
-          }
-          throw retryError;
-        }
+        const recovered = await this.recoverFromThinkingError(streamFn, runtimeModelId, isCloudModel, tools);
+        if (recovered) return recovered;
       }
 
+      // Attempt recovery from tool errors on cloud models
       if (isCloudModel && tools && this.isThinkingInternalServerError(innerError)) {
-        this.outputChannel.warn(`[client] cloud model ${runtimeModelId} failed with tools; retrying without tools`);
-        effectiveTools = undefined;
-        const response = await streamFn(activeShouldThink, undefined);
-        return { response, effectiveTools, shouldThink: activeShouldThink };
+        return this.recoverFromCloudToolsError(streamFn, runtimeModelId, shouldThink);
       }
 
+      // Attempt recovery from tools not supported
       if (tools && isToolsNotSupportedError(innerError)) {
-        this.outputChannel.warn(`[client] model ${runtimeModelId} rejected tools; retrying without tools`);
-        effectiveTools = undefined;
-        const response = await streamFn(activeShouldThink, undefined);
-        return { response, effectiveTools, shouldThink: activeShouldThink };
+        return this.recoverFromToolsError(streamFn, runtimeModelId, shouldThink);
       }
 
       throw innerError;
@@ -793,14 +836,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
     const supportsNativeToolCalling =
       this.nativeToolCallingByModelId.get(model.id) ?? this.nativeToolCallingByModelId.get(runtimeModelId) ?? false;
     if (options.tools && options.tools.length > 0 && supportsNativeToolCalling) {
-      tools = options.tools.map(tool => ({
-        type: 'function' as const,
-        function: {
-          name: tool.name,
-          description: tool.description || '',
-          parameters: normalizeToolParameters(tool.inputSchema),
-        },
-      }));
+      tools = buildNativeToolsArray(options.tools);
     }
 
     // Create a per-request client to isolate this stream's connection from others.
@@ -1177,10 +1213,7 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
     return { strippedImages, strippedBinary };
   }
 
-  private toOllamaMessages(
-    messages: readonly LanguageModelChatRequestMessage[],
-    supportsVision = true,
-  ): Message[] {
+  private toOllamaMessages(messages: readonly LanguageModelChatRequestMessage[], supportsVision = true): Message[] {
     const ollamaMessages: Message[] = [];
     const systemContextParts: string[] = [];
     let strippedImageCount = 0;
