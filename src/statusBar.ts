@@ -124,7 +124,11 @@ export interface HealthDebounceState {
   lastApplied: HealthCheckResult | undefined;
 }
 
-export function applyHealthResult(result: HealthCheckResult, state: HealthDebounceState, item: vscode.StatusBarItem): void {
+export function applyHealthResult(
+  result: HealthCheckResult,
+  state: HealthDebounceState,
+  item: vscode.StatusBarItem,
+): void {
   if (!result.online) {
     state.consecutiveFailures++;
   } else {

@@ -950,5 +950,13 @@
       "esbuild",
       "msw"
     ]
-  }
+  },
+  "enabledApiProposals": [
+    "chatParticipantAdditions",
+    "chatParticipantPrivate",
+    "defaultChatParticipant",
+    "languageModelThinkingPart",
+    "chatStatusItem",
+    "languageModelCapabilities"
+  ]
 }

@@ -728,13 +728,26 @@ async function handleDirectOllamaRequest(
 
     const dedupedContextParts = dedupeXmlContextBlocksByTag(systemContextParts);
 
+    // Build location-aware system prompt.
+    // location2 (proposed API) indicates chat context: inline chat, quick chat, or chat view.
+    // Adjust prompt guidance based on context for better UX.
+    let systemPrompt = BASE_SYSTEM_PROMPT;
+    if ((request as any).location2) {
+      const location = (request as any).location2;
+      const locationType = location?.type || location?.[0]?.type;
+      // For inline chat or quick chat, add brief context to avoid verbose responses
+      if (locationType === 'inline' || locationType === 'quickChat') {
+        systemPrompt += '\n\nProvide concise, focused responses appropriate for quick interactions.';
+      }
+    }
+
     if (dedupedContextParts.length > 0) {
       ollamaMessages.unshift({
         role: 'system',
-        content: BASE_SYSTEM_PROMPT + '\n\n' + dedupedContextParts.join('\n\n'),
+        content: systemPrompt + '\n\n' + dedupedContextParts.join('\n\n'),
       });
     } else {
-      ollamaMessages.unshift({ role: 'system', content: BASE_SYSTEM_PROMPT });
+      ollamaMessages.unshift({ role: 'system', content: systemPrompt });
     }
 
     // Truncate messages to fit within the model's context window.

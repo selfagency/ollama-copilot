@@ -39,6 +39,7 @@ import { ThinkingParser } from './thinkingParser.js';
 import { buildNativeToolsArray, isToolsNotSupportedError } from './toolUtils.js';
 
 const MODEL_LIST_REFRESH_MIN_INTERVAL_MS = 5_000;
+const MODEL_LIST_REFRESH_SILENT_GRACE_PERIOD_MS = 30 * 60 * 1000; // 30-minute grace period for silent mode
 const MODEL_INFO_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const MODEL_SHOW_TIMEOUT_MS = 2_000;
 const NON_TOOL_MODEL_MIN_PICKER_CONTEXT_TOKENS = 131_072;
@@ -86,14 +87,31 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
   ) {}
 
   /**
-   * Provide information about available chat models
+   * Provide information about available chat models.
+   * The silent parameter is used to indicate whether credential prompts should be suppressed.
+   * When silent=true, uses cached models within the grace period to avoid network calls.
    */
   async provideLanguageModelChatInformation(
-    _options: { silent: boolean },
+    options: { silent: boolean },
     _token: CancellationToken,
   ): Promise<LanguageModelChatInformation[]> {
     const now = Date.now();
-    if (this.cachedModelList.length > 0 && now - this.lastModelListRefreshMs < MODEL_LIST_REFRESH_MIN_INTERVAL_MS) {
+
+    // In silent mode, use cached models if available and within grace period
+    if (
+      options.silent &&
+      this.cachedModelList.length > 0 &&
+      now - this.lastModelListRefreshMs < MODEL_LIST_REFRESH_SILENT_GRACE_PERIOD_MS
+    ) {
+      return this.cachedModelList;
+    }
+
+    // In non-silent mode, use standard throttle window
+    if (
+      !options.silent &&
+      this.cachedModelList.length > 0 &&
+      now - this.lastModelListRefreshMs < MODEL_LIST_REFRESH_MIN_INTERVAL_MS
+    ) {
       return this.cachedModelList;
     }
 

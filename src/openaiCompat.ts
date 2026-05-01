@@ -235,7 +235,12 @@ export async function* chatCompletionsStream(
     let parsed: unknown;
     try {
       parsed = JSON.parse(payload);
-    } catch {
+    } catch (err) {
+      // Log JSON parse errors for debugging stream issues. Invalid JSON in SSE streams may indicate
+      // an API incompatibility or malformed response. Skip malformed chunks and continue streaming.
+      console.warn(
+        `[openaiCompat] JSON parse error in stream chunk: ${err instanceof Error ? err.message : String(err)}`,
+      );
       continue;
     }
 
@@ -281,7 +286,12 @@ export async function initiateChatCompletionsStream(
       let parsed: unknown;
       try {
         parsed = JSON.parse(payload);
-      } catch {
+      } catch (err) {
+        // Log JSON parse errors for debugging stream issues. Invalid JSON in SSE streams may indicate
+        // an API incompatibility or malformed response. Skip malformed chunks and continue streaming.
+        console.warn(
+          `[openaiCompat] JSON parse error in stream chunk: ${err instanceof Error ? err.message : String(err)}`,
+        );
         continue;
       }
 

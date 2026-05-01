@@ -75,9 +75,7 @@ export class OllamaPrompt extends PromptElement<OllamaPromptProps> {
     // Build reference block text: each reference wrapped in an XML <context> tag.
     const refBlock =
       references && references.length > 0
-        ? references
-            .map(r => `<context>\n${r.label}:\n\`\`\`\n${r.content}\n\`\`\`\n</context>`)
-            .join('\n\n')
+        ? references.map(r => `<context>\n${r.label}:\n\`\`\`\n${r.content}\n\`\`\`\n</context>`).join('\n\n')
         : null;
 
     return (
@@ -87,16 +85,12 @@ export class OllamaPrompt extends PromptElement<OllamaPromptProps> {
         </SystemMessage>
         <PrioritizedList priority={10} descending={false}>
           {olderHistory.map(msg =>
-            msg.role === 'user'
-              ? vscpp(UserMessage, {}, msg.content)
-              : vscpp(AssistantMessage, {}, msg.content),
+            msg.role === 'user' ? vscpp(UserMessage, {}, msg.content) : vscpp(AssistantMessage, {}, msg.content),
           )}
         </PrioritizedList>
         <PrioritizedList priority={80} descending={false}>
           {recentHistory.map(msg =>
-            msg.role === 'user'
-              ? vscpp(UserMessage, {}, msg.content)
-              : vscpp(AssistantMessage, {}, msg.content),
+            msg.role === 'user' ? vscpp(UserMessage, {}, msg.content) : vscpp(AssistantMessage, {}, msg.content),
           )}
         </PrioritizedList>
         {refBlock && (

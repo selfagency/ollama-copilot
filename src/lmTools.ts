@@ -19,14 +19,18 @@ export function registerOpilotLmTools(
   const disposables: vscode.Disposable[] = [];
 
   // Helper to wrap a JSON-serializable result into the VS Code LM return shape.
-  const createLmToolResult = (payload: unknown) => {
-    const jsonStr = JSON.stringify(payload);
-    const textPart = new vscode.LanguageModelTextPart(jsonStr);
-    return { content: [textPart] };
+  const wrapResult = (payload: unknown) => {
+    return { content: [new vscode.LanguageModelTextPart(JSON.stringify(payload))] };
   };
 
   try {
-    // List models
+    /**
+     * Tool: opilot_list_models
+     * Lists all locally installed and cloud Ollama models with metadata.
+     * Returns: { id: string, size: number, downloaded: boolean, running: boolean }[]
+     * Auto-invoked during model discovery; can also be called manually for refresh.
+     * Use case: Populate model pickers, check running models, verify available models.
+     */
     const d1 = vscode.lm.registerTool(
       'opilot_list_models',
       {
@@ -44,16 +48,22 @@ export function registerOpilotLmTools(
             downloaded: true,
             running: runningNames.has(m.name),
           }));
-          return createLmToolResult(mapped);
+          return wrapResult(mapped);
         } catch (error) {
           diagnostics?.exception?.('[lm-tools] opilot_list_models failed', error);
-          return createLmToolResult({ error: error instanceof Error ? error.message : String(error) });
+          return wrapResult({ error: error instanceof Error ? error.message : String(error) });
         }
       },
     );
     disposables.push(d1);
 
-    // Get model info
+    /**
+     * Tool: opilot_get_model_info
+     * Returns detailed capabilities and metadata for a specific model.
+     * Input: { modelId: string } (e.g., "llama3.2:3b")
+     * Returns: { modelId: string, capabilities: CapabilityInfo }
+     * Use case: Check if a model supports vision, tool-calling, thinking, or other features.
+     */
     const d2 = vscode.lm.registerTool(
       'opilot_get_model_info',
       {
@@ -68,18 +78,24 @@ export function registerOpilotLmTools(
       async (input: Record<string, unknown>, _token: vscode.CancellationToken) => {
         try {
           const modelId = typeof input.modelId === 'string' ? input.modelId : '';
-          if (!modelId) return createLmToolResult({ error: 'missing modelId' });
+          if (!modelId) return wrapResult({ error: 'missing modelId' });
           const caps = await fetchModelCapabilities(client, modelId);
-          return createLmToolResult({ modelId, capabilities: caps });
+          return wrapResult({ modelId, capabilities: caps });
         } catch (error) {
           diagnostics?.exception?.('[lm-tools] opilot_get_model_info failed', error);
-          return createLmToolResult({ error: error instanceof Error ? error.message : String(error) });
+          return wrapResult({ error: error instanceof Error ? error.message : String(error) });
         }
       },
     );
     disposables.push(d2);
 
-    // Check server health
+    /**
+     * Tool: opilot_check_server_health
+     * Checks connectivity to the configured Ollama server (local or remote).
+     * Returns: { reachable: boolean, host: string | null, error?: string }
+     * Timeout: 5 seconds
+     * Use case: Verify server availability, diagnose connection issues, test auth.
+     */
     const d3 = vscode.lm.registerTool(
       'opilot_check_server_health',
       {
@@ -90,20 +106,23 @@ export function registerOpilotLmTools(
         try {
           const ok = await testConnection(client, 5000);
           const host = (client as unknown as { config: { host: string } }).config?.host ?? null;
-          return createLmToolResult({ reachable: !!ok, host });
+          return wrapResult({ reachable: !!ok, host });
         } catch (error) {
           diagnostics?.exception?.('[lm-tools] opilot_check_server_health failed', error);
-          return createLmToolResult({
-            reachable: false,
-            error: error instanceof Error ? error.message : String(error),
-          });
+          return wrapResult({ reachable: false, error: error instanceof Error ? error.message : String(error) });
         }
       },
     );
     disposables.push(d3);
 
-    // Pull model (long running) — perform a direct pull without interactive UI.
-    // Note: this downloads synchronously (stream: false) to simplify tool semantics.
+    /**
+     * Tool: opilot_pull_model
+     * Downloads a model from the Ollama library to the local machine.
+     * Input: { modelId: string } (e.g., "llama3.2:3b")
+     * Returns: { pulled: true, modelId: string } on success, or { error: string } on failure
+     * Note: Downloads synchronously to simplify tool semantics; can be long-running.
+     * Use case: Programmatic model acquisition for agentic workflows.
+     */
     const d4 = vscode.lm.registerTool(
       'opilot_pull_model',
       {
@@ -118,23 +137,30 @@ export function registerOpilotLmTools(
       async (input: Record<string, unknown>, _token: vscode.CancellationToken) => {
         try {
           const modelId = typeof input.modelId === 'string' ? input.modelId : '';
-          if (!modelId) return createLmToolResult({ error: 'missing modelId' });
+          if (!modelId) return wrapResult({ error: 'missing modelId' });
           await client.pull({ model: modelId, stream: false });
           try {
             localProvider.refresh();
           } catch {
             // best-effort
           }
-          return createLmToolResult({ pulled: true, modelId });
+          return wrapResult({ pulled: true, modelId });
         } catch (error) {
           diagnostics?.exception?.('[lm-tools] opilot_pull_model failed', error);
-          return createLmToolResult({ error: error instanceof Error ? error.message : String(error) });
+          return wrapResult({ error: error instanceof Error ? error.message : String(error) });
         }
       },
     );
     disposables.push(d4);
 
-    // Start model (warm)
+    /**
+     * Tool: opilot_start_model
+     * Warms up (loads into memory) a model so it responds without cold-start delay.
+     * Input: { modelId: string } (e.g., "llama3.2:3b")
+     * Returns: { started: true, modelId: string } on success, or { error: string } on failure
+     * Idempotent: Safe to call on an already-running model.
+     * Use case: Prepare model for agentic task, reduce response latency.
+     */
     const d5 = vscode.lm.registerTool(
       'opilot_start_model',
       {
@@ -149,19 +175,26 @@ export function registerOpilotLmTools(
       async (input: Record<string, unknown>, _token: vscode.CancellationToken) => {
         try {
           const modelId = typeof input.modelId === 'string' ? input.modelId : '';
-          if (!modelId) return createLmToolResult({ error: 'missing modelId' });
+          if (!modelId) return wrapResult({ error: 'missing modelId' });
           // Use the LocalModelsProvider API directly (safe and idempotent)
           await localProvider.startModel(modelId);
-          return createLmToolResult({ started: true, modelId });
+          return wrapResult({ started: true, modelId });
         } catch (error) {
           diagnostics?.exception?.('[lm-tools] opilot_start_model failed', error);
-          return createLmToolResult({ error: error instanceof Error ? error.message : String(error) });
+          return wrapResult({ error: error instanceof Error ? error.message : String(error) });
         }
       },
     );
     disposables.push(d5);
 
-    // Stop model
+    /**
+     * Tool: opilot_stop_model
+     * Unloads a running model from memory to free VRAM/RAM.
+     * Input: { modelId: string } (e.g., "llama3.2:3b")
+     * Returns: { stopped: true, modelId: string } on success, or { error: string } on failure
+     * Safe to call on a stopped or non-existent model (no-op).
+     * Use case: Free resources between tasks, prevent VRAM exhaustion with large models.
+     */
     const d6 = vscode.lm.registerTool(
       'opilot_stop_model',
       {
@@ -176,12 +209,12 @@ export function registerOpilotLmTools(
       async (input: Record<string, unknown>, _token: vscode.CancellationToken) => {
         try {
           const modelId = typeof input.modelId === 'string' ? input.modelId : '';
-          if (!modelId) return createLmToolResult({ error: 'missing modelId' });
+          if (!modelId) return wrapResult({ error: 'missing modelId' });
           await localProvider.stopModel(modelId);
-          return createLmToolResult({ stopped: true, modelId });
+          return wrapResult({ stopped: true, modelId });
         } catch (error) {
           diagnostics?.exception?.('[lm-tools] opilot_stop_model failed', error);
-          return createLmToolResult({ error: error instanceof Error ? error.message : String(error) });
+          return wrapResult({ error: error instanceof Error ? error.message : String(error) });
         }
       },
     );
