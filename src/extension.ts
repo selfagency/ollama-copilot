@@ -226,6 +226,15 @@ export async function setupChatParticipant(
 ): Promise<vscode.Disposable> {
   const chat = chatApi || vscode.chat;
 
+  const setOptionalParticipantFeature = (featureName: string, value: unknown) => {
+    try {
+      (participant as any)[featureName] = value;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      diagnostics?.debug?.(`[participantFeatures] skipping ${featureName}: ${message}`);
+    }
+  };
+
   const participant = chat.createChatParticipant('opilot.ollama', participantHandler);
   participant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'logo.png');
   participant.helpTextPrefix = getHelpTextPrefix();
@@ -242,7 +251,7 @@ export async function setupChatParticipant(
       modelId,
       serverHost,
     });
-    (participant as any).titleProvider = (message: string) => titleProvider.provideChatTitle(message);
+    setOptionalParticipantFeature('titleProvider', titleProvider);
 
     // Summarizer
     const summarizer = createSummarizer({
@@ -251,21 +260,22 @@ export async function setupChatParticipant(
       modelId,
       serverHost,
     });
-    (participant as any).summarizer = (messages: vscode.LanguageModelChatMessage[]) =>
-      summarizer.summarizeMessages(messages);
+    setOptionalParticipantFeature('summarizer', summarizer);
 
     // Welcome message
-    (participant as any).additionalWelcomeMessage = await getAdditionalWelcomeMessage({
-      client,
-      diagnostics,
-      modelId,
-      serverHost,
-    });
+    setOptionalParticipantFeature(
+      'additionalWelcomeMessage',
+      await getAdditionalWelcomeMessage({
+        client,
+        diagnostics,
+        modelId,
+        serverHost,
+      }),
+    );
 
     // Followup provider
     const followupProvider = createFollowupProvider();
-    (participant as any).followupProvider = (request: any, result: any) =>
-      followupProvider.provideFollowups(request, result);
+    setOptionalParticipantFeature('followupProvider', followupProvider);
 
     // Variable completions
     const varProvider = createParticipantVariableProvider({
@@ -274,7 +284,7 @@ export async function setupChatParticipant(
       modelId,
       serverHost,
     });
-    (participant as any).participantVariableProvider = (token: any) => varProvider.provideCompletionItems(token);
+    setOptionalParticipantFeature('participantVariableProvider', varProvider);
 
     // Phase 5.7: Detection provider
     const detectionProvider = createParticipantDetectionProvider();

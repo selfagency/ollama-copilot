@@ -109,6 +109,7 @@ declare module 'vscode' {
     };
     // Model selector variable completions
     participantVariableProvider?: {
+      triggerCharacters: string[];
       provideCompletionItems(token: CancellationToken): ProviderResult<ChatCompletionItem[]>;
     };
   }

@@ -208,6 +208,7 @@ export function createFollowupProvider() {
  */
 export function createParticipantVariableProvider(ctx: ParticipantFeaturesContext) {
   return {
+    triggerCharacters: ['@', ':'],
     async provideCompletionItems(_token: any): Promise<any[]> {
       try {
         if ((_token as any)?.isCancellationRequested) return [];
