@@ -2,7 +2,7 @@ import { appendToBlockquote } from '@agentsy/formatting';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { Ollama, type ChatResponse, type Message, type ShowResponse, type Tool } from 'ollama';
+import type { Ollama, ChatResponse, Message, ShowResponse, Tool } from 'ollama';
 import {
   CancellationToken,
   EventEmitter,
@@ -1406,11 +1406,11 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
       }
     }
 
-    const toString = (part as { toString?: () => string }).toString;
-    if (typeof toString !== 'function') {
+    const toStringFn = (part as { toString?: () => string }).toString;
+    if (typeof toStringFn !== 'function') {
       return '';
     }
-    const converted = toString.call(part);
+    const converted = toStringFn.call(part);
     return converted && converted !== '[object Object]' ? converted : '';
   }
 

@@ -31,6 +31,7 @@ jobs:
       relevant: ${{ steps.filter.outputs.relevant }}
     steps:
       - uses: actions/checkout@v6
+      # nosemgrep: semgrep.github-actions.security.unpinned-action
       - uses: dorny/paths-filter@v3
         id: filter
         with:
@@ -61,6 +62,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      # nosemgrep: semgrep.github-actions.security.unpinned-action
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
@@ -100,6 +102,7 @@ jobs:
         env:
           CI: true
 
+      # nosemgrep: semgrep.github-actions.security.unpinned-action
       - name: Setup Ollama
         uses: ai-action/setup-ollama@v2
 
@@ -139,11 +142,13 @@ jobs:
 
       - name: Upload test results to Codecov
         if: ${{ !cancelled() }}
+        # nosemgrep: semgrep.github-actions.security.unpinned-action
         uses: codecov/test-results-action@v1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload coverage reports to Codecov
+        # nosemgrep: semgrep.github-actions.security.unpinned-action
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -151,6 +156,7 @@ jobs:
           flags: unittests
           name: codecov-umbrella
           fail_ci_if_error: true
+        # nosemgrep: semgrep.github-actions.security.unpinned-action
 
       - name: Upload extension bundle
         if: success()

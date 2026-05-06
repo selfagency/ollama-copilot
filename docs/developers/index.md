@@ -61,7 +61,7 @@ Run tasks with `task <name>`:
 
 ## Directory Structure
 
-```
+```text
 src/
   extension.ts         # Activation, chat participant, log streaming
   provider.ts          # VS Code LM API provider implementation

@@ -101,13 +101,7 @@ describe('activate', () => {
       Disposable: class {
         constructor(public dispose: () => void) {}
         static from(...disposables: Array<{ dispose?: () => void }>) {
-          return {
-            dispose: () => {
-              for (const disposable of disposables) {
-                disposable.dispose?.();
-              }
-            },
-          };
+          return new (this as any)(() => disposables.forEach(d => d.dispose?.()));
         }
       },
     }));
@@ -238,13 +232,7 @@ describe('activate', () => {
       Disposable: class {
         constructor(public dispose: () => void) {}
         static from(...disposables: Array<{ dispose?: () => void }>) {
-          return {
-            dispose: () => {
-              for (const disposable of disposables) {
-                disposable.dispose?.();
-              }
-            },
-          };
+          return new (this as any)(() => disposables.forEach(d => d.dispose?.()));
         }
       },
     }));
@@ -378,13 +366,7 @@ describe('activate', () => {
       Disposable: class {
         constructor(public dispose: () => void) {}
         static from(...disposables: Array<{ dispose?: () => void }>) {
-          return {
-            dispose: () => {
-              for (const disposable of disposables) {
-                disposable.dispose?.();
-              }
-            },
-          };
+          return new (this as any)(() => disposables.forEach(d => d.dispose?.()));
         }
       },
     }));

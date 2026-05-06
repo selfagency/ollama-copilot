@@ -37,4 +37,54 @@ describe('lmTools registration', () => {
     expect(Array.isArray(disposables)).toBe(true);
     expect(mockContext.subscriptions.length).toBeGreaterThanOrEqual(disposables.length);
   });
+
+  it('registered tools are callable via vscode.lm mock', async () => {
+    // Reset modules to mock vscode differently for this test
+    const registrations: Record<string, Function> = {};
+    // Clear module cache so we can re-mock 'vscode' safely for this case
+    vi.resetModules();
+    // Minimal vscode mock for this test: only the pieces used by lmTools
+    const mockVscode: Record<string, unknown> = {
+      lm: {
+        registerTool: vi.fn((name: string, _schema: unknown, handler: Function) => {
+          registrations[name] = handler;
+          return { dispose: vi.fn() };
+        }),
+      },
+      // LanguageModelTextPart used to wrap results
+      LanguageModelTextPart: class {
+        constructor(public value: string) {}
+      },
+    };
+
+    vi.doMock('vscode', () => mockVscode);
+
+    // Re-import the module under test with the new mock
+    const { registerOpilotLmTools } = await import('./lmTools');
+
+    const mockClient = {
+      list: vi.fn().mockResolvedValue({ models: [{ name: 'mymodel', size: 10 }] }),
+      ps: vi.fn().mockResolvedValue({ models: [] }),
+      pull: vi.fn().mockResolvedValue(undefined),
+    } as unknown as Ollama;
+
+    const mockLocalProvider = {
+      startModel: vi.fn().mockResolvedValue(undefined),
+      stopModel: vi.fn().mockResolvedValue(undefined),
+      refresh: vi.fn(),
+    } as unknown as LocalModelsProvider;
+
+    const mockContext = { subscriptions: [] } as unknown as vscode.ExtensionContext;
+    const mockDiagnostics = { exception: vi.fn(), info: vi.fn() } as unknown as DiagnosticsLogger;
+
+    registerOpilotLmTools(mockContext, mockClient, mockLocalProvider, mockDiagnostics);
+
+    // Ensure the list tool was registered and then invoke its handler
+    expect(Object.keys(registrations).length).toBeGreaterThan(0);
+    expect(typeof registrations['opilot_list_models']).toBe('function');
+
+    const result = await registrations['opilot_list_models']({}, {} as any);
+    // Handler returns { content: [LanguageModelTextPart(JSON.stringify(...))] }
+    expect(result).toBeDefined();
+  });
 });

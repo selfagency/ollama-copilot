@@ -65,18 +65,61 @@ export interface CodeBlock {
 
 export function parseCodeBlocks(content: string): CodeBlock[] {
   const blocks: CodeBlock[] = [];
-  const regex = /```(\w+)?(?:\s+(?:file=)?([^\n]+))?\n([\s\S]*?)```/g;
 
+  // Avoid complex regexes that can exhibit catastrophic backtracking on
+  // maliciously-crafted inputs. Instead, parse fences by scanning for the
+  // literal triple-backtick markers which is linear in the size of input.
+  const MAX_BLOCK_SIZE = 1_048_576; // 1 MB - guard against extremely large blocks
+
+  let pos = 0;
   while (true) {
-    const match = regex.exec(content);
-    if (!match) {
-      break;
-    }
-    const language = match[1] || 'text';
-    const filename = match[2]?.trim();
-    const code = match[3];
+    const start = content.indexOf('```', pos);
+    if (start === -1) break;
 
-    blocks.push({ language, filename, code });
+    const headerStart = start + 3;
+    // Require a newline after the opening fence header; if none, treat as malformed
+    const newlineIndex = content.indexOf('\n', headerStart);
+    if (newlineIndex === -1) break;
+
+    const header = content.substring(headerStart, newlineIndex).trim();
+
+    // Parse header: language [file=path]
+    let language = 'text';
+    let filename: string | undefined;
+    if (header) {
+      const m = header.match(/^(\w+)(?:\s+(.+))?$/);
+      if (m) {
+        if (m[1]) language = m[1];
+        if (m[2]) {
+          const rest = m[2].trim();
+          if (rest.startsWith('file=')) {
+            filename = rest.slice(5).trim();
+          } else {
+            // allow header forms like "typescript src/foo.ts" or just a filename
+            filename = rest;
+          }
+        }
+      } else {
+        // fallback: treat entire header as language if it looks like a single token
+        if (/^\w+$/.test(header)) language = header;
+        else filename = header;
+      }
+    }
+
+    const codeStart = newlineIndex + 1;
+    const end = content.indexOf('```', codeStart);
+    if (end === -1) break;
+
+    const code = content.substring(codeStart, end);
+
+    if (code.length <= MAX_BLOCK_SIZE) {
+      blocks.push({ language, filename: filename?.trim(), code });
+    } else {
+      // Skip or truncate extremely large blocks to avoid resource exhaustion.
+      console.warn(`[agent-mode] skipped oversized code block at offset ${start} (${code.length} bytes)`);
+    }
+
+    pos = end + 3;
   }
 
   return blocks;

@@ -90,7 +90,7 @@ export function truncateMessages(messages: Message[], maxInputTokens: number): M
     effectiveSystemMsgs = systemMsgs.map(m => {
       const content = typeof m.content === 'string' ? m.content : '';
       if (content.length <= charLimit) return m;
-      return { ...m, content: content.slice(0, charLimit) + '\n[context truncated for model context window]' };
+      return { ...m, content: `${content.slice(0, charLimit)}\n[context truncated for model context window]` };
     });
   }
 

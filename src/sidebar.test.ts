@@ -207,7 +207,9 @@ describe('LocalModelsProvider', () => {
     const fakeEvent = { affectsConfiguration: (key: string) => key === 'ollama.localModelRefreshInterval' };
     for (let i = 0; i < 3; i++) {
       // Fire ALL current listeners (simulates VS Code dispatching the event)
-      [...onDidChangeConfigListeners].forEach(l => l(fakeEvent));
+      for (const listener of onDidChangeConfigListeners.slice()) {
+        listener(fakeEvent);
+      }
       // Give time for any async operations
       await new Promise(resolve => setTimeout(resolve, 0));
     }

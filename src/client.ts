@@ -1,6 +1,6 @@
 import { Ollama } from 'ollama';
 import { Agent, fetch as undiciFetch } from 'undici';
-import { ExtensionContext } from 'vscode';
+import type { ExtensionContext } from 'vscode';
 import { getSetting } from './settings.js';
 
 export function getOllamaHost(): string {
@@ -16,6 +16,7 @@ function getIgnoreSslErrors(): boolean {
  * Only used when `opilot.ignoreSslErrors` is enabled by the user.
  */
 function createInsecureFetch(): typeof globalThis.fetch {
+  // nosemgrep: Semgrep_codacy.javascript.security.audit.ssl-nodejs-disable-certificate-validation
   const agent = new Agent({ connect: { rejectUnauthorized: false } }); // nosemgrep: bypass-tls-verification
   return (input, init) =>
     undiciFetch(input as Parameters<typeof undiciFetch>[0], {

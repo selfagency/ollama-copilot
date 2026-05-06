@@ -1,5 +1,6 @@
 #!/usr/bin/env zx
 
+import { $, ProcessOutput, argv, cd, sleep } from 'zx';
 import { Octokit } from '@octokit/rest';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -20,6 +21,7 @@ const version = argv._[0];
 const isPreRelease = argv['pre-release'] === true || argv.p === true;
 
 if (!version || !/^\d+\.\d+\.\d+$/.test(version)) {
+  // nosemgrep: javascript.lang.security.audit.xss.console-html-constructed-from-input.console-html-constructed-from-input
   console.error(
     isPreRelease
       ? 'Usage: task prerelease -- <version>   (e.g. task prerelease -- 0.1.0)'
@@ -288,7 +290,7 @@ async function main() {
   const pkgPath = resolve(ROOT, 'package.json');
   const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
   pkg.version = version;
-  writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
+  writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
 
   // --- Update CHANGELOG.md --------------------------------------------------
 

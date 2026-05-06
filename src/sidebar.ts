@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { homedir, totalmem } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { Ollama } from 'ollama';
+import type { Ollama } from 'ollama';
 import {
   CancellationToken,
   commands,
@@ -168,13 +168,13 @@ export class ModelTreeItem extends TreeItem {
   private formatSize(bytes?: number): string {
     if (!bytes) return '';
     if (bytes < 1024 ** 2) {
-      return Math.round(bytes / 1024) + ' KB';
+      return `${Math.round(bytes / 1024)} KB`;
     }
     if (bytes < 1024 ** 3) {
-      return Math.round(bytes / 1024 ** 2) + ' MB';
+      return `${Math.round(bytes / 1024 ** 2)} MB`;
     }
     const gb = bytes / 1024 ** 3;
-    return gb.toFixed(1) + ' GB';
+    return `${gb.toFixed(1)} GB`;
   }
 
   private formatDuration(ms?: number): string {
@@ -539,6 +539,7 @@ async function fetchModelPagePreview(
 
 const MODEL_PREVIEW_CACHE_TTL_MS = 30 * 60 * 1000;
 const MODEL_PREVIEW_CACHE_MAX_ENTRIES = 1000;
+// nosemgrep: Semgrep_codacy.javascript.security.hard-coded-password
 const MODEL_PREVIEW_CACHE_STORAGE_KEY = 'ollama.modelPreviewCache.v1';
 
 type ModelPagePreview = Awaited<ReturnType<typeof fetchModelPagePreview>>;
@@ -679,6 +680,7 @@ export class LocalModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
   private localModelCapabilitiesInFlight = new Set<string>();
   private refreshDebounceTimer: NodeJS.Timeout | undefined;
   private cachedLocalModelNames = new Set<string>();
+  // nosemgrep: Semgrep_codacy.javascript.security.hard-coded-password
   private static readonly LOCAL_CAPABILITIES_STORAGE_KEY = 'ollama.localModelCapabilities.v1';
 
   constructor(
@@ -1328,6 +1330,7 @@ export class LibraryModelsProvider implements TreeDataProvider<ModelTreeItem>, D
   private localProvider?: LocalModelsProvider;
   private context?: ExtensionContext;
 
+  // nosemgrep: Semgrep_codacy.javascript.security.hard-coded-password
   private static readonly CACHE_STORAGE_KEY = 'ollama.libraryModelsCache.v1';
 
   private static readonly CACHE_VERSION = 1;
@@ -2026,6 +2029,7 @@ export class CloudModelsProvider implements TreeDataProvider<ModelTreeItem>, Dis
   private catalogModelNames: string[] = [];
   private cloudCapabilitiesByBase = new Map<string, Set<string>>();
 
+  // nosemgrep: Semgrep_codacy.javascript.security.hard-coded-password
   private static readonly CLOUD_CATALOG_STORAGE_KEY = 'ollama.cloudCatalogCache.v1';
   private static readonly CLOUD_CATALOG_CACHE_VERSION = 1;
 
@@ -2822,6 +2826,14 @@ export type SidebarRegistration = {
   getProfilingSnapshot: () => SidebarProfilingSnapshot;
 };
 
+// Expose the active LocalModelsProvider to other modules that want to read
+// runtime provider state (used to update chat status items, etc.). This is
+// intentionally minimal and guarded — consumers must check for undefined.
+let activeLocalModelsProvider: LocalModelsProvider | undefined;
+export function getLocalModelsProvider(): LocalModelsProvider | undefined {
+  return activeLocalModelsProvider;
+}
+
 const CAPABILITY_FILTER_LABEL_TO_KEY = new Map([
   ['🧠 Thinking', 'thinking'],
   ['🛠️ Tools', 'tools'],
@@ -3136,6 +3148,9 @@ export function registerSidebar(
     { dispose: () => libraryProvider.dispose() },
     { dispose: () => cloudProvider.dispose() },
   );
+
+  // Expose the active local provider for other modules to query runtime state.
+  activeLocalModelsProvider = localProvider;
 
   // Register language-model tools that operate on models (list/info/health/pull/start/stop).
   // We register here so the implementations can directly call the LocalModelsProvider

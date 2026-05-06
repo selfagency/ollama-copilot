@@ -149,8 +149,14 @@ Chat with models running on your local Ollama instance or remote server.
  */
 export async function getAdditionalWelcomeMessage(ctx: ParticipantFeaturesContext): Promise<string> {
   try {
-    const list = await ctx.client.list();
-    const ps = await ctx.client.ps();
+    // Use a short timeout to avoid stalling activation when the Ollama host is slow or unreachable.
+    const timeoutMs = 3000;
+    const withTimeout = async <T>(p: Promise<T>, ms: number): Promise<T> => {
+      return await Promise.race([p, new Promise<T>((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))]);
+    };
+
+    const list = (await withTimeout(ctx.client.list(), timeoutMs)) as Awaited<ReturnType<typeof ctx.client.list>>;
+    const ps = (await withTimeout(ctx.client.ps(), timeoutMs)) as Awaited<ReturnType<typeof ctx.client.ps>>;
     const modelCount = list.models.length;
     const runningCount = ps.models.length;
     const host = ctx.serverHost || 'localhost:11434';
@@ -255,7 +261,8 @@ export function createParticipantVariableProvider(ctx: ParticipantFeaturesContex
  * Keywords: "ollama", "local model", "llama", "mistral", etc.
  */
 export function createParticipantDetectionProvider() {
-  const keywords = ['ollama', 'local model', 'llama', 'mistral', 'deepseek', 'qwen', 'local'];
+  // Keep keywords focused on Ollama-specific phrases to avoid false positives
+  const keywords = ['ollama', 'local model', 'llama', 'mistral', 'deepseek', 'qwen'];
 
   return {
     detectChatParticipant(input: string): boolean {
