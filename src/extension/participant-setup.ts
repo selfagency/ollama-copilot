@@ -8,8 +8,12 @@ import { type ChatClient } from '../client.js';
 import { type DiagnosticsLogger } from '../diagnostics.js';
 import { type ModelSettingsStore } from '../modelSettings.js';
 import { type ChatRequestHandler } from './lm-api.js';
-
-import { getHelpTextPrefix, createTitleProvider, createSummarizer, getAdditionalWelcomeMessage } from '../participantFeatures';
+import {
+  getHelpTextPrefix,
+  createTitleProvider,
+  createSummarizer,
+  getAdditionalWelcomeMessage,
+} from '../participantFeatures.js';
 
 /**
  * Setup context for chat participant registration
@@ -106,18 +110,6 @@ export async function setupChatParticipant(
   };
 }
 
-// Re-export participant features for convenience
-import {
-  createFollowupProvider,
-  createParticipantDetectionProvider,
-  createParticipantVariableProvider,
-  createSummarizer,
-  createTitleProvider,
-  getAdditionalWelcomeMessage,
-  getHelpTextPrefix,
-  resolvePromptReferences,
-} from '../participantFeatures.js';
-
 export {
   createFollowupProvider,
   createParticipantDetectionProvider,
@@ -127,4 +119,4 @@ export {
   getAdditionalWelcomeMessage,
   getHelpTextPrefix,
   resolvePromptReferences,
-};
+} from '../participantFeatures.js';

@@ -8,7 +8,7 @@ import { handleDirectOllamaRequest, handleXmlToolFallback, streamModelResponse }
 
 describe('direct-ollama-handler', () => {
   let mockRequest: vscode.ChatRequest;
-  let mockChatContext: vscode.ChatContext;
+  let _mockChatContext: vscode.ChatContext;
   let mockStream: vscode.ChatResponseStream;
   let mockToken: vscode.CancellationToken;
   let mockClient: any;
@@ -25,10 +25,6 @@ describe('direct-ollama-handler', () => {
       },
       toolInvocationToken: 'test-token',
     } as unknown as vscode.ChatRequest;
-
-    mockChatContext = {
-      history: [],
-    } as unknown as vscode.ChatContext;
 
     mockStream = {
       markdown: vi.fn(),
@@ -48,6 +44,10 @@ describe('direct-ollama-handler', () => {
         message: { content: 'Test response' },
       }),
     };
+
+    _mockChatContext = {
+      history: [],
+    } as unknown as vscode.ChatContext;
 
     mockDiagnostics = {
       info: vi.fn(),
@@ -86,7 +86,7 @@ describe('direct-ollama-handler', () => {
   });
 
   it('should handle XML tool fallback', async () => {
-    const mockExtractXmlToolCalls = vi.fn().mockReturnValue([
+    const _mockExtractXmlToolCalls = vi.fn().mockReturnValue([
       {
         name: 'test-tool',
         arguments: { test: 'value' },
@@ -100,6 +100,26 @@ describe('direct-ollama-handler', () => {
       }),
     } as any);
 
+    const result = await handleXmlToolFallback({
+      modelId: 'llama3',
+      isCloudModel: false,
+      ollamaMessages: [{ role: 'user', content: 'test' }],
+      vscodeLmTools: [{ name: 'test-tool', description: 'Test tool' }],
+      request: mockRequest,
+      stream: mockStream,
+      token: mockToken,
+      effectiveClient: mockClient,
+      baseUrl: 'http://localhost:11434',
+      authToken: 'test-token',
+      modelOptions: {},
+      logOpenAiCompatFallback: vi.fn(),
+      outputChannel: mockDiagnostics,
+    });
+
+    expect(result).toBeDefined();
+  });
+
+  it('should handle XML tool fallback', async () => {
     const result = await handleXmlToolFallback({
       modelId: 'llama3',
       isCloudModel: false,

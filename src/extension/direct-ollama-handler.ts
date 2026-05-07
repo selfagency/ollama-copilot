@@ -3,13 +3,13 @@
  * Handles streaming requests directly to Ollama models without VS Code LM API overhead
  */
 
-import type { ChatResponse, Message, Ollama } from 'ollama';
+import type { Message, Ollama } from 'ollama';
 import * as vscode from 'vscode';
 import { type DiagnosticsLogger } from '../diagnostics.js';
 import { type ModelSettingsStore } from '../modelSettings.js';
 import { type ChatRequestHandler } from './lm-api.js';
+import { type ModelOptionOverrides } from '../modelSettings.js';
 
-const LANGUAGE_MODEL_VENDOR = 'selfagency-opilot' as const;
 const PROVIDER_MODEL_ID_PREFIX = 'ollama:' as const;
 const HERMES_MODEL_PATTERN = /qwen2\.5|qwen3|qwq/i;
 
@@ -34,14 +34,7 @@ export async function handleDirectOllamaRequest(
   messages: vscode.LanguageModelChatMessage[],
   context: DirectOllamaRequestContext,
 ): Promise<void> {
-  const {
-    stream,
-    token,
-    client,
-    outputChannel,
-    extensionContext,
-    modelSettings,
-  } = context;
+  const { stream, token, client, outputChannel, extensionContext, modelSettings } = context;
 
   const modelId = request.model.id;
   const isCloudModel = modelId.startsWith('cloud-');
@@ -50,7 +43,7 @@ export async function handleDirectOllamaRequest(
     : modelId;
 
   const { ollamaMessages, systemContextParts } = convertMessagesToOllamaFormat(messages);
-  
+
   const baseUrl = getOllamaHost(extensionContext);
   const authToken = await getOllamaAuthToken();
 
@@ -58,9 +51,7 @@ export async function handleDirectOllamaRequest(
 
   const logOpenAiCompatFallback = (mode: 'stream' | 'once', modelId: string, error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
-    outputChannel?.warn?.(
-      `[client] OpenAI compat fallback triggered for ${mode} (model=${modelId}): ${message}`,
-    );
+    outputChannel?.warn?.(`[client] OpenAI compat fallback triggered for ${mode} (model=${modelId}): ${message}`);
   };
 
   const vscodeLmTools = getSelectedLmTools(request);
@@ -188,7 +179,9 @@ export async function handleXmlToolFallback(options: {
         });
         continue;
       }
-      outputChannel?.warn?.(`[client] XML fallback: model ${modelId} did not emit any tool calls after ${MAX_XML_ROUNDS} rounds`);
+      outputChannel?.warn?.(
+        `[client] XML fallback: model ${modelId} did not emit any tool calls after ${MAX_XML_ROUNDS} rounds`,
+      );
       return false;
     }
 
@@ -221,7 +214,6 @@ export async function streamModelResponse(options: {
   isCloudModel: boolean;
   ollamaMessages: Array<Message | { role: 'tool'; content: string; tool_call_id?: string }>;
   systemContextParts: string[];
-  vscodeLmTools: readonly vscode.LanguageModelToolInformation[];
   request: vscode.ChatRequest;
   stream: vscode.ChatResponseStream;
   token: vscode.CancellationToken;
@@ -237,7 +229,6 @@ export async function streamModelResponse(options: {
     isCloudModel,
     ollamaMessages,
     systemContextParts,
-    vscodeLmTools,
     request,
     stream,
     token,
@@ -250,9 +241,8 @@ export async function streamModelResponse(options: {
   } = options;
 
   const modelMessages = ollamaMessages.filter(m => m.role !== 'system') as Message[];
-  const systemMessage = systemContextParts.length > 0
-    ? systemContextParts.map(part => `Context: ${part}`).join('\n\n')
-    : undefined;
+  const systemMessage =
+    systemContextParts.length > 0 ? systemContextParts.map(part => `Context: ${part}`).join('\n\n') : undefined;
 
   if (systemMessage) {
     modelMessages.unshift({ role: 'system', content: systemMessage });
@@ -267,7 +257,7 @@ export async function streamModelResponse(options: {
         baseUrl: baseUrl!,
         authToken,
         modelOptions,
-        onOpenAiCompatFallback: (error) => logOpenAiCompatFallback('stream', modelId, error),
+        onOpenAiCompatFallback: error => logOpenAiCompatFallback('stream', modelId, error),
       })
     : nativeSdkStreamChat({
         modelId,
@@ -299,16 +289,7 @@ export async function streamModelResponse(options: {
   await reportWarningSafely(assistantTextParts, stream, token, outputChannel);
 }
 
-// Re-export types and functions for backward compatibility
-import type { ChatRequestHandler } from './lm-api.js';
-import type { Ollama } from 'ollama';
-import type { ModelOptionOverrides } from '../modelSettings.js';
-
-export type {
-  ChatRequestHandler,
-  DirectOllamaRequestContext,
-  Ollama,
-};
+export type { ChatRequestHandler, DirectOllamaRequestContext, Ollama };
 
 // Import utility functions from other modules
 import {
@@ -322,11 +303,7 @@ import {
   beginToolInvocationSafely,
 } from './stream-ui.js';
 
-import {
-  getModelOptionsForModel,
-  getOllamaHost,
-  getOllamaAuthToken,
-} from '../client.js';
+import { getModelOptionsForModel, getOllamaHost, getOllamaAuthToken } from '../client.js';
 
 import {
   convertMessagesToOllamaFormat,

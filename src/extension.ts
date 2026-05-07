@@ -16,6 +16,7 @@ import { reportError } from './errorHandler.js';
 import { resolvePromptReferences } from './extension/chat-helpers.js';
 import { handleVsCodeLmRequest } from './extension/lm-api.js';
 import { setupChatParticipant } from './extension/participant-setup.js';
+import { setupProviders, type ProviderSetupContext } from './extension/provider-setup.js';
 import {
   beginToolInvocationSafely,
   reportThinkingProgressSafely,
@@ -24,12 +25,7 @@ import {
   updateToolInvocationSafely,
 } from './extension/stream-ui.js';
 import { executeToolCallingLoop } from './extension/tooling-loop.js';
-import {
-  handleConfigurationChange,
-  handleConnectionTestFailure,
-  isSelectedAction,
-  redactDisplayHost,
-} from './extensionHelpers.js';
+import { handleConfigurationChange, handleConnectionTestFailure, redactDisplayHost } from './extensionHelpers.js';
 import {
   createXmlStreamFilter,
   dedupeXmlContextBlocksByTag,
@@ -41,13 +37,11 @@ import { registerModelfileManager } from './modelfiles.js';
 import {
   getModelOptionsForModel,
   loadModelSettings,
-  saveModelSettings,
   type ModelOptionOverrides,
   type ModelSettingsStore,
 } from './modelSettings.js';
-import { isThinkingModelId, OllamaChatModelProvider } from './provider.js';
+import { isThinkingModelId } from './provider.js';
 import { getSetting, migrateLegacySettingsWithState } from './settings.js';
-import { createModelSettingsViewProvider, MODEL_SETTINGS_VIEW_ID } from './settingsWebview.js';
 import { registerSidebar, type SidebarProfilingSnapshot } from './sidebar.js';
 import { registerStatusBarHeartbeat } from './statusBar.js';
 import { ThinkingParser } from './thinkingParser.js';
@@ -59,22 +53,13 @@ import {
 } from './toolUtils.js';
 
 import { handleBuiltInOllamaConflict } from './extension/built-in-ollama-conflict';
-import { removeBuiltInOllamaFromChatLanguageModels } from './extension/built-in-ollama-conflict';
-import { builtInOllamaConflictPromptInProgress } from './participantOrchestration';
 
 const LANGUAGE_MODEL_VENDOR = 'selfagency-opilot';
 const PROVIDER_MODEL_ID_PREFIX = 'ollama:';
 const HERMES_MODEL_PATTERN = /qwen2\.5|qwen3|qwq/i;
 
 /** VS Code Autopilot signals task completion by having the model call this tool. */
-const TASK_COMPLETE_TOOL_NAME = 'task_complete';
-
-type ChatParticipantDetectionRegistrationApi = {
-  registerChatParticipantDetectionProvider?: (
-    id: string,
-    provider: { detectChatParticipant?(input: string): boolean },
-  ) => vscode.Disposable;
-};
+const _TASK_COMPLETE_TOOL_NAME = 'task_complete';
 
 type RequestToolSelectionMapLike = Map<string, vscode.LanguageModelToolInformation>;
 
@@ -146,322 +131,12 @@ function logPerformanceSnapshot(
 
   diagnostics.info(`[client] ${JSON.stringify(payload)}`);
 }
-/**
- * Set up chat participant with icon and register it
- */
-export async function setupChatParticipant(
-  context: vscode.ExtensionContext,
-  participantHandler: vscode.ChatRequestHandler,
-  chatApi?: Pick<typeof vscode.chat, 'createChatParticipant'>,
-  client?: Ollama,
-  diagnostics?: DiagnosticsLogger,
-): Promise<vscode.Disposable> {
-  const chat = chatApi || vscode.chat;
-  const chatDetectionApi = vscode.chat as unknown as ChatParticipantDetectionRegistrationApi;
-  const participantRecord = (value: vscode.ChatParticipant) => value as unknown as Record<string, unknown>;
-
-  const setOptionalParticipantFeature = (featureName: string, value: unknown) => {
-    try {
-      participantRecord(participant)[featureName] = value;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      diagnostics?.debug?.(`[participantFeatures] skipping ${featureName}: ${message}`);
-    }
-  };
-
-  const participant = chat.createChatParticipant('opilot.ollama', participantHandler);
-  participant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'logo.png');
-  participant.helpTextPrefix = getHelpTextPrefix();
-
-  // Phase 5: Wire up Chat Participant providers
-  if (client && diagnostics) {
-    const modelId = getSetting<string>('selectedModel', 'llama3.2');
-    const serverHost = getSetting<string>('host', 'http://localhost:11434');
-
-    // Title provider
-    const titleProvider = createTitleProvider({
-      client,
-      diagnostics,
-      modelId,
-      serverHost,
-    });
-    setOptionalParticipantFeature('titleProvider', titleProvider);
-
-    // Summarizer
-    const summarizer = createSummarizer({
-      client,
-      diagnostics,
-      modelId,
-      serverHost,
-    });
-    setOptionalParticipantFeature('summarizer', summarizer);
-
-    // Welcome message
-    setOptionalParticipantFeature(
-      'additionalWelcomeMessage',
-      await getAdditionalWelcomeMessage({
-        client,
-        diagnostics,
-        modelId,
-        serverHost,
-      }),
-    );
-
-    // Followup provider
-    const followupProvider = createFollowupProvider();
-    setOptionalParticipantFeature('followupProvider', followupProvider);
-
-    // Variable completions
-    const varProvider = createParticipantVariableProvider({
-      client,
-      diagnostics,
-      modelId,
-      serverHost,
-    });
-    setOptionalParticipantFeature('participantVariableProvider', varProvider);
-
-    // Phase 5.7: Detection provider
-    const detectionProvider = createParticipantDetectionProvider();
-    if (typeof chatDetectionApi.registerChatParticipantDetectionProvider === 'function') {
-      chatDetectionApi.registerChatParticipantDetectionProvider('opilot.ollama', detectionProvider);
-    }
-  }
-
-  return participant;
-}
-
-/**
- * Detect and offer to disable Copilot's conflicting built-in Ollama provider.
- * Detects via LM models registered under vendor 'ollama'.
- */
-async function disableBuiltInOllamaProvider(
-  ws: Pick<typeof vscode.workspace, 'getConfiguration'>,
-  win: Pick<typeof vscode.window, 'showErrorMessage'>,
-  context?: Pick<vscode.ExtensionContext, 'globalStorageUri'>,
-): Promise<boolean> {
-  try {
-    await (ws.getConfiguration('github.copilot.chat') as vscode.WorkspaceConfiguration).update(
-      'ollama.url',
-      '',
-      vscode.ConfigurationTarget.Global,
-    );
-    return true;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('not a registered configuration') && context) {
-      try {
-        return await removeBuiltInOllamaFromChatLanguageModels(context);
-      } catch (fallbackError) {
-        const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
-        await win.showErrorMessage(`Failed to disable Copilot's built-in Ollama provider: ${fallbackMessage}`);
-        return false;
-      }
-    } else {
-      await win.showErrorMessage(`Failed to disable Copilot's built-in Ollama provider: ${message}`);
-      return false;
-    }
-  }
-}
-
-async function promptDisableBuiltInProvider(win: Pick<typeof vscode.window, 'showWarningMessage'>): Promise<boolean> {
-  const selection = await win.showWarningMessage(
-    "Copilot's built-in Ollama provider is active and will show duplicate models alongside this extension. Disable it?",
-    'Disable Built-in Ollama Provider',
-  );
-  return isSelectedAction(selection, 'Disable Built-in Ollama Provider');
-}
-
-async function promptReloadAfterDisable(
-  win: Pick<typeof vscode.window, 'showInformationMessage'>,
-  commands: Pick<typeof vscode.commands, 'executeCommand'>,
-): Promise<void> {
-  const reloadSelection = await win.showInformationMessage(
-    "Copilot's built-in Ollama provider has been disabled. Reload VS Code to apply.",
-    'Reload Window',
-  );
-
-  if (isSelectedAction(reloadSelection, 'Reload Window')) {
-    await commands.executeCommand('workbench.action.reloadWindow');
-  }
-}
-
-async function hasBuiltInOllamaModels(lmApi: Pick<typeof vscode.lm, 'selectChatModels'>): Promise<boolean> {
-  const conflictModels = await lmApi.selectChatModels({ vendor: 'ollama' });
-  return conflictModels.length > 0;
-}
-
-async function resolveBuiltInOllamaConflictFlow(
-  win: Pick<typeof vscode.window, 'showWarningMessage' | 'showInformationMessage' | 'showErrorMessage'>,
-  ws: Pick<typeof vscode.workspace, 'getConfiguration'>,
-  commands: Pick<typeof vscode.commands, 'executeCommand'>,
-  context?: Pick<vscode.ExtensionContext, 'globalStorageUri'>,
-): Promise<void> {
-  if (!(await promptDisableBuiltInProvider(win))) return;
-
-  const disabled = await disableBuiltInOllamaProvider(ws, win, context);
-
-  if (!disabled) {
-    await win.showErrorMessage(
-      'Built-in Ollama provider appears to still be enabled. Please disable it in Chat Language Models settings.',
-    );
-    return;
-  }
-
-  await promptReloadAfterDisable(win, commands);
-}
-
-export async function handleBuiltInOllamaConflict(
-  windowApi?: Pick<typeof vscode.window, 'showWarningMessage' | 'showInformationMessage' | 'showErrorMessage'>,
-  workspaceApi?: Pick<typeof vscode.workspace, 'getConfiguration'>,
-  lmApi?: Pick<typeof vscode.lm, 'selectChatModels'>,
-  commandsApi?: Pick<typeof vscode.commands, 'executeCommand'>,
-  context?: Pick<vscode.ExtensionContext, 'globalStorageUri'>,
-): Promise<void> {
-  if (builtInOllamaConflictPromptInProgress) {
-    return;
-  }
-
-  const win = windowApi ?? vscode.window;
-  const ws = workspaceApi ?? vscode.workspace;
-  const lm = lmApi ?? vscode.lm;
-  const commands = commandsApi ?? vscode.commands;
-
-  if (!(await hasBuiltInOllamaModels(lm))) return;
-
-  builtInOllamaConflictPromptInProgress = true;
-  try {
-    await resolveBuiltInOllamaConflictFlow(win, ws, commands, context);
-  } finally {
-    builtInOllamaConflictPromptInProgress = false;
-  }
-}
-
-/** Extract tool calls and assistant text from the model response stream. */
-async function extractToolCallsAndText(
-  response: unknown,
-  stream: vscode.ChatResponseStream,
-  token: vscode.CancellationToken,
-  outputChannel?: DiagnosticsLogger,
-): Promise<{
-  pendingToolCalls: vscode.LanguageModelToolCallPart[];
-  assistantTextParts: vscode.LanguageModelTextPart[];
-}> {
-  const pendingToolCalls: vscode.LanguageModelToolCallPart[] = [];
-  const assistantTextParts: vscode.LanguageModelTextPart[] = [];
-  const streamIterable = (response as { stream: AsyncIterable<unknown> }).stream;
-  try {
-    for await (const chunk of streamIterable) {
-      if (token.isCancellationRequested) {
-        break;
-      }
-
-      if (chunk instanceof vscode.LanguageModelTextPart) {
-        assistantTextParts.push(chunk);
-        stream.markdown(chunk.value);
-      } else if (chunk instanceof vscode.LanguageModelToolCallPart) {
-        pendingToolCalls.push(chunk);
-      }
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    outputChannel?.warn(`[client] LM stream iteration failed: ${message}`);
-    throw new Error(`Language model stream interrupted: ${message}`);
-  }
-  return { pendingToolCalls, assistantTextParts };
-}
-
-/** Handle task_complete tool invocation. */
-async function handleTaskCompleteToolInvocation(
-  toolCall: vscode.LanguageModelToolCallPart,
-  request: vscode.ChatRequest,
-  token: vscode.CancellationToken,
-  outputChannel?: DiagnosticsLogger,
-): Promise<void> {
-  try {
-    await vscode.lm.invokeTool(
-      TASK_COMPLETE_TOOL_NAME,
-      { input: toolCall.input as Record<string, unknown>, toolInvocationToken: request.toolInvocationToken },
-      token,
-    );
-  } catch (taskCompleteError) {
-    const message = taskCompleteError instanceof Error ? taskCompleteError.message : String(taskCompleteError);
-    outputChannel?.warn(`[client] task_complete invocation failed (vscode-lm path): ${message}`);
-  }
-}
-
-/** Invoke all tool calls and collect results. */
-async function invokeAllTools(
-  toolCalls: vscode.LanguageModelToolCallPart[],
-  request: vscode.ChatRequest,
-  token: vscode.CancellationToken,
-): Promise<vscode.LanguageModelToolResultPart[]> {
-  const toolResults: vscode.LanguageModelToolResultPart[] = [];
-  for (const toolCall of toolCalls) {
-    try {
-      const result = await vscode.lm.invokeTool(
-        toolCall.name,
-        { input: toolCall.input as Record<string, unknown>, toolInvocationToken: request.toolInvocationToken },
-        token,
-      );
-      toolResults.push(new vscode.LanguageModelToolResultPart(toolCall.callId, result.content));
-    } catch (invokeError) {
-      const errMsg = invokeError instanceof Error ? invokeError.message : 'Tool execution failed';
-      toolResults.push(
-        new vscode.LanguageModelToolResultPart(toolCall.callId, [new vscode.LanguageModelTextPart(errMsg)]),
-      );
-    }
-  }
-  return toolResults;
-}
-
-async function runToolRound(
-  model: vscode.LanguageModelChat,
-  conversationMessages: vscode.LanguageModelChatMessage[],
-  tools: readonly vscode.LanguageModelToolInformation[],
-  request: vscode.ChatRequest,
-  stream: vscode.ChatResponseStream,
-  token: vscode.CancellationToken,
-  outputChannel?: DiagnosticsLogger,
-): Promise<boolean> {
-  const response = await model.sendRequest(
-    conversationMessages,
-    tools.length && request.toolInvocationToken
-      ? { tools: tools.map(t => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })) }
-      : {},
-    token,
-  );
-
-  const { pendingToolCalls, assistantTextParts } = await extractToolCallsAndText(
-    response,
-    stream,
-    token,
-    outputChannel,
-  );
-
-  const hasTaskComplete = pendingToolCalls.some(tc => tc.name === TASK_COMPLETE_TOOL_NAME);
-  if (pendingToolCalls.length === 0 || !request.toolInvocationToken || hasTaskComplete) {
-    if (hasTaskComplete && request.toolInvocationToken) {
-      const taskCompleteCall = pendingToolCalls.find(call => call.name === TASK_COMPLETE_TOOL_NAME);
-      if (taskCompleteCall) {
-        await handleTaskCompleteToolInvocation(taskCompleteCall, request, token, outputChannel);
-      }
-    }
-    return true;
-  }
-
-  conversationMessages.push(vscode.LanguageModelChatMessage.Assistant([...assistantTextParts, ...pendingToolCalls]));
-
-  const toolResults = await invokeAllTools(pendingToolCalls, request, token);
-  conversationMessages.push(vscode.LanguageModelChatMessage.User(toolResults));
-  return false;
-}
-
-// handleVsCodeLmRequest moved to ./extension/lm-api
+// ...existing code...
 
 /**
  * Build and send a message to the language model.
  *
- * When `client` is provided the request is streamed directly from Ollama —
+* When `client` is provided the request is streamed directly from Ollama —
  * completely bypassing the VS Code IPC boundary — giving the @ollama participant
  * true per-token streaming. When `client` is omitted the function falls back to
  * the VS Code LM API path (used in tests and as a backwards-compatibility shim).
@@ -1346,77 +1021,18 @@ export async function activate(context: vscode.ExtensionContext) {
     diagnostics.warn('[model-settings] globalStorageUri missing; using in-memory settings only');
   }
 
-  const getAvailableModelNames = async (): Promise<string[]> => {
-    const names = new Set<string>(Object.keys(modelSettingsStore));
-    try {
-      const [local, running] = await Promise.all([client.list(), client.ps()]);
-      for (const model of local.models ?? []) {
-        if (typeof model?.name === 'string' && model.name.length > 0) {
-          names.add(model.name);
-        }
-      }
-      for (const model of running.models ?? []) {
-        if (typeof model?.name === 'string' && model.name.length > 0) {
-          names.add(model.name);
-        }
-      }
-    } catch (error) {
-      diagnostics.exception('[model-settings] failed to collect model list', error);
-    }
-    return Array.from(names);
-  };
-
-  let saveDebounceTimer: ReturnType<typeof setTimeout> | undefined;
-  const modelSettingsViewProvider = createModelSettingsViewProvider({
+  const {
+    modelSettingsViewProvider,
+    modelSettingsViewRegistration,
+    lmProviderDisposable,
+    provider,
+    getSettingsDisposer,
+  } = setupProviders({
     context,
-    initialStore: modelSettingsStore,
-    getAvailableModels: getAvailableModelNames,
-    onStoreChanged: async nextStore => {
-      modelSettingsStore = nextStore;
-      if (context.globalStorageUri?.fsPath) {
-        // Debounce writes: sliders fire many rapid patches; batch into a single save after 500 ms.
-        clearTimeout(saveDebounceTimer);
-        saveDebounceTimer = setTimeout(() => {
-          saveModelSettings(context.globalStorageUri, modelSettingsStore, diagnostics).catch(() => {});
-        }, 500);
-      }
-    },
+    client,
     diagnostics,
-  });
-
-  diagnostics.info(`[model-settings] Registering webview view provider with ID: ${MODEL_SETTINGS_VIEW_ID}`);
-  const modelSettingsViewRegistration =
-    typeof vscode.window.registerWebviewViewProvider === 'function'
-      ? vscode.window.registerWebviewViewProvider(MODEL_SETTINGS_VIEW_ID, modelSettingsViewProvider, {
-          webviewOptions: { retainContextWhenHidden: true },
-        })
-      : {
-          dispose: () => {
-            /* noop for tests/mocks */
-          },
-        };
-  diagnostics.info('[model-settings] View provider registered');
-
-  const provider = new OllamaChatModelProvider(context, client, diagnostics, () => modelSettingsStore);
-  let lmProviderDisposable: vscode.Disposable | undefined;
-  try {
-    lmProviderDisposable = vscode.lm.registerLanguageModelChatProvider(LANGUAGE_MODEL_VENDOR, provider);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('already registered')) {
-      diagnostics.warn(
-        `[client] language model provider vendor "${LANGUAGE_MODEL_VENDOR}" is already registered; skipping duplicate registration.`,
-      );
-    } else {
-      reportError(diagnostics, 'Language model provider registration failed', error, { showToUser: true });
-      throw error;
-    }
-  }
-
-  // Eagerly populate model capability data so thinking/tools detection is
-  // ready before the first chat request rather than waiting for VS Code to
-  // lazily call provideLanguageModelChatInformation.
-  provider.prefetchModels();
+    modelSettingsStore,
+  } as ProviderSetupContext);
 
   // Detect and prompt to disable VS Code's built-in Ollama provider (non-blocking)
   (async () => {
@@ -1474,15 +1090,7 @@ export async function activate(context: vscode.ExtensionContext) {
     {
       dispose: () => stopLogStreaming(),
     },
-    {
-      // Flush any pending debounced model-settings save on extension deactivation.
-      dispose: () => {
-        clearTimeout(saveDebounceTimer);
-        if (context.globalStorageUri?.fsPath) {
-          saveModelSettings(context.globalStorageUri, modelSettingsStore, diagnostics).catch(() => {});
-        }
-      },
-    },
+    getSettingsDisposer(),
   ];
 
   if (lmProviderDisposable) {
