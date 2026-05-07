@@ -13,6 +13,30 @@ import { type ModelOptionOverrides } from '../modelSettings.js';
 const PROVIDER_MODEL_ID_PREFIX = 'ollama:' as const;
 const HERMES_MODEL_PATTERN = /qwen2\.5|qwen3|qwq/i;
 
+// Import utility functions from other modules
+import {
+  getSelectedLmTools,
+  executeToolCallingLoop,
+  extractToolCallsAndText,
+  reportThinkingProgressSafely,
+  reportUsageSafely,
+  reportWarningSafely,
+  updateToolInvocationSafely,
+  beginToolInvocationSafely,
+} from './stream-ui.js';
+
+import { getModelOptionsForModel, getOllamaHost, getOllamaAuthToken } from '../client.js';
+
+import {
+  convertMessagesToOllamaFormat,
+  buildXmlToolSystemPrompt,
+  extractXmlToolCalls,
+  nativeSdkChatOnce,
+  nativeSdkStreamChat,
+  openAiCompatChatOnce,
+  openAiCompatStreamChat,
+} from '../chatUtils.js';
+
 /**
  * Request context to reduce parameter passing in handleDirectOllamaRequest
  */
@@ -286,33 +310,5 @@ export async function streamModelResponse(options: {
     return;
   }
 
-  await reportWarningSafely(assistantTextParts, stream, token, outputChannel);
+await reportWarningSafely(assistantTextParts, stream, token, outputChannel);
 }
-
-export type { ChatRequestHandler, DirectOllamaRequestContext, Ollama };
-
-// Import utility functions from other modules
-import {
-  getSelectedLmTools,
-  executeToolCallingLoop,
-  extractToolCallsAndText,
-  reportThinkingProgressSafely,
-  reportUsageSafely,
-  reportWarningSafely,
-  updateToolInvocationSafely,
-  beginToolInvocationSafely,
-} from './stream-ui.js';
-
-import { getModelOptionsForModel, getOllamaHost, getOllamaAuthToken } from '../client.js';
-
-import {
-  convertMessagesToOllamaFormat,
-  buildXmlToolSystemPrompt,
-  extractXmlToolCalls,
-  nativeSdkChatOnce,
-  nativeSdkStreamChat,
-  openAiCompatChatOnce,
-  openAiCompatStreamChat,
-} from '../chatUtils.js';
-
-import { HERMES_MODEL_PATTERN } from '../contextUtils.js';
