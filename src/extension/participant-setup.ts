@@ -36,7 +36,7 @@ export type ParticipantSetupContext = {
  * @returns Promise that resolves to the chat participant disposable
  */
 export async function setupChatParticipant(
-  context: vscode.ExtensionContext,
+  _: vscode.ExtensionContext,
   handler: ChatRequestHandler,
   chatParticipantDetectionProvider?: vscode.Disposable,
   client?: ChatClient,
@@ -67,7 +67,7 @@ export async function setupChatParticipant(
     // eslint-disable-next-line @typescript-eslint/require-await
     async welcome() {
       return new vscode.ChatResponsePartialPart({
-        message: new vscode.ChatResponseMarkdownPart(additionalWelcomeMessage + '\n\n' + helpTextPrefix),
+        message: new vscode.ChatResponseMarkdownPart(`${additionalWelcomeMessage}\n\n${helpTextPrefix}`),
       });
     },
   });

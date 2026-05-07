@@ -11,9 +11,9 @@ describe('direct-ollama-handler', () => {
   let _mockChatContext: vscode.ChatContext;
   let mockStream: vscode.ChatResponseStream;
   let mockToken: vscode.CancellationToken;
-  let mockClient: any;
-  let mockDiagnostics: any;
-  let mockExtensionContext: any;
+  let mockClient: Record<string, unknown>;
+  let mockDiagnostics: Record<string, unknown>;
+  let mockExtensionContext: Record<string, unknown>;
 
   beforeEach(() => {
     vi.resetAllMocks();

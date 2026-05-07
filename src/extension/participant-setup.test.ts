@@ -8,8 +8,9 @@ import { setupChatParticipant } from './participant-setup.js';
 
 describe('participant-setup', () => {
   let mockContext: vscode.ExtensionContext;
-  let mockHandler: any;
-  let mockDiagnostics: any;
+  let mockHandler: vscode.ChatRequestHandler;
+  let mockClient: Record<string, unknown>;
+  let mockDiagnostics: Record<string, unknown>;
   let mockClient: any;
 
   beforeEach(() => {

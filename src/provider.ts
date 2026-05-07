@@ -514,21 +514,21 @@ export class OllamaChatModelProvider implements LanguageModelChatProvider<Langua
   /**
    * Check if model supports tool use
    */
-  private isToolModel(modelResponse: unknown): boolean {
+  private _isToolModel(modelResponse: unknown): boolean {
     return isToolModelUtil(modelResponse);
   }
 
   /**
    * Check if model supports extended thinking / reasoning
    */
-  private isThinkingModel(modelResponse: unknown): boolean {
+  private _isThinkingModel(modelResponse: unknown): boolean {
     return isThinkingModelUtil(modelResponse);
   }
 
   /**
    * Check if model supports vision/image inputs
    */
-  private isVisionModel(modelResponse: unknown): boolean {
+  private _isVisionModel(modelResponse: unknown): boolean {
     return isVisionModelUtil(modelResponse);
   }
 
