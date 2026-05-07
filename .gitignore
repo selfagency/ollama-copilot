@@ -244,3 +244,8 @@ test-report.junit.xml
 .gh-pages
 package-lock.json
 **/cache
+# Backup files
+*.bak
+
+# CMUX configuration
+.cmux/
